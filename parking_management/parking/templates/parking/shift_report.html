@@ -168,20 +168,25 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@3.7.0/dist/chart.min.js"></script>
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    const hourlyLabels = JSON.parse('{{ hourly_labels|safe }}');
+    const hourlyCheckins = JSON.parse('{{ hourly_checkins|safe }}');
+    const hourlyCheckouts = JSON.parse('{{ hourly_checkouts|safe }}');
+    const revenueData = JSON.parse('{{ revenue_distribution|safe }}');
+
     // Hourly Activity Chart
     const hourlyCtx = document.getElementById('hourlyActivityChart').getContext('2d');
-    new Chart(hourlyCtx, {
+    const hourlyChart = new Chart(hourlyCtx, {
         type: 'line',
         data: {
-            labels: {{ hourly_labels|safe }},
+            labels: hourlyLabels,
             datasets: [{
                 label: 'Check-ins',
-                data: {{ hourly_checkins }},
+                data: hourlyCheckins,
                 borderColor: 'rgb(75, 192, 192)',
                 tension: 0.1
             }, {
                 label: 'Check-outs',
-                data: {{ hourly_checkouts }},
+                data: hourlyCheckouts,
                 borderColor: 'rgb(255, 99, 132)',
                 tension: 0.1
             }]
@@ -207,12 +212,12 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Revenue Distribution Chart
     const revenueCtx = document.getElementById('revenueChart').getContext('2d');
-    new Chart(revenueCtx, {
+    const revenueChart = new Chart(revenueCtx, {
         type: 'pie',
         data: {
             labels: ['< 1 hour', '1-2 hours', '2-4 hours', '4+ hours'],
             datasets: [{
-                data: {{ revenue_distribution }},
+                data: revenueData,
                 backgroundColor: [
                     'rgb(255, 99, 132)',
                     'rgb(54, 162, 235)',
@@ -233,4 +238,4 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
-{% endblock %} 
+{% endblock %}

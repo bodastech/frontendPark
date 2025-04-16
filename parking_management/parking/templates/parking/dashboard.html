@@ -1,8 +1,311 @@
-{% extends 'parking/base.html' %}
+{% extends 'base.html' %}
+{% load static %}
 {% load humanize %}
 
 {% block content %}
 <div class="container-fluid">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h3 class="mb-0">Parking Management Dashboard</h3>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="card bg-success text-white">
+                                <div class="card-body">
+                                    <h5>Total Vehicles Today</h5>
+                                    <h2>{{ today_stats.total_vehicles }}</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-info text-white">
+                                <div class="card-body">
+                                    <h5>Revenue Today</h5>
+                                    <h2>Rp {{ today_stats.total_revenue|intcomma }}</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-warning text-white">
+                                <div class="card-body">
+                                    <h5>Occupancy Rate</h5>
+                                    <h2>{{ today_stats.occupancy_rate }}%</h2>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-danger text-white">
+                                <div class="card-body">
+                                    <h5>Active Sessions</h5>
+                                    <h2>{{ today_stats.active_sessions }}</h2>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Real-time Statistics -->
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Real-time Statistics</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="card bg-light">
+                                <div class="card-body">
+                                    <h5>Entrances Today</h5>
+                                    <h2>{{ real_time.entrances }}</h2>
+                                    <p class="text-muted">Last hour: {{ real_time.last_hour_entrances }}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card bg-light">
+                                <div class="card-body">
+                                    <h5>Exits Today</h5>
+                                    <h2>{{ real_time.exits }}</h2>
+                                    <p class="text-muted">Last hour: {{ real_time.last_hour_exits }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Current Shift</h5>
+                </div>
+                <div class="card-body">
+                    {% if current_shift %}
+                    <div class="alert alert-info">
+                        <h5>Operator: {{ current_shift.operator.username }}</h5>
+                        <p>Started: {{ current_shift.start_time|date:"H:i" }}</p>
+                        <p>Total Vehicles: {{ current_shift.total_vehicles }}</p>
+                        <p>Total Revenue: Rp {{ current_shift.total_revenue|intcomma }}</p>
+                    </div>
+                    {% else %}
+                    <div class="alert alert-warning">
+                        <h5>No Active Shift</h5>
+                        <p>Please start a new shift</p>
+                        <a href="{% url 'start_shift' %}" class="btn btn-primary">Start New Shift</a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Activity -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Recent Activity</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Type</th>
+                                    <th>License Plate</th>
+                                    <th>Operator</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for activity in recent_activity %}
+                                <tr>
+                                    <td>{{ activity.timestamp|date:"H:i" }}</td>
+                                    <td>{{ activity.type }}</td>
+                                    <td>{{ activity.license_plate }}</td>
+                                    <td>{{ activity.operator }}</td>
+                                    <td>
+                                        <span class="badge {% if activity.status == 'IN' %}bg-success{% else %}bg-danger{% endif %}">
+                                            {{ activity.status }}
+                                        </span>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Parking Spot Status -->
+    <div class="row mb-4">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Parking Spot Status</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        {% for floor, spots in floor_status.items %}
+                        <div class="col-md-4">
+                            <div class="card">
+                                <div class="card-header">
+                                    <h5>Level {{ floor }}</h5>
+                                </div>
+                                <div class="card-body">
+                                    <div class="progress mb-3">
+                                        <div class="progress-bar bg-success" 
+                                             role="progressbar" 
+                                             style="width: {{ spots.occupancy_rate }}%" 
+                                             aria-valuenow="{{ spots.occupancy_rate }}" 
+                                             aria-valuemin="0" 
+                                             aria-valuemax="100">
+                                            {{ spots.occupancy_rate }}%
+                                        </div>
+                                    </div>
+                                    <p>Total Spots: {{ spots.total }}</p>
+                                    <p>Occupied: {{ spots.occupied }}</p>
+                                    <p>Available: {{ spots.available }}</p>
+                                </div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="row">
+        <!-- Vehicle Type Distribution -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Vehicle Type Distribution</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="vehicleTypeChart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Revenue Trend -->
+        <div class="col-md-6">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Revenue Trend (Last 7 Days)</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="revenueChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    // Vehicle Type Distribution Chart
+    const vehicleTypeCtx = document.getElementById('vehicleTypeChart').getContext('2d');
+    
+    const vehicleTypeChart = new Chart(vehicleTypeCtx, {
+        type: 'pie',
+        data: {
+            labels: [
+                {% for type in vehicle_types %}
+                '{{ type.vehicle_type }}'{% if not forloop.last %},{% endif %}
+                {% endfor %}
+            ],
+            datasets: [{
+                data: [
+                    {% for type in vehicle_types %}
+                    {{ type.count }}{% if not forloop.last %},{% endif %}
+                    {% endfor %}
+                ],
+                backgroundColor: [
+                    'rgba(54, 162, 235, 0.5)',
+                    'rgba(255, 99, 132, 0.5)',
+                    'rgba(75, 192, 192, 0.5)',
+                    'rgba(153, 102, 255, 0.5)'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'top'
+                },
+                title: {
+                    display: true,
+                    text: 'Vehicle Type Distribution'
+                }
+            }
+        }
+    });
+
+    // Revenue Trend Chart
+    const revenueCtx = document.getElementById('revenueChart').getContext('2d');
+    
+    const revenueChart = new Chart(revenueCtx, {
+        type: 'line',
+        data: {
+            labels: [
+                {% for day in revenue_trend %}
+                '{{ day.date|date:"M d" }}'
+                {% if not forloop.last %},{% endif %}
+                {% endfor %}
+            ],
+            datasets: [{
+                label: 'Daily Revenue',
+                data: [
+                    {% for day in revenue_trend %}
+                    {{ day.revenue }}
+                    {% if not forloop.last %},{% endif %}
+                    {% endfor %}
+                ],
+                borderColor: 'rgb(75, 192, 192)',
+                tension: 0.1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'top'
+                },
+                title: {
+                    display: true,
+                    text: 'Revenue Trend'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return 'Rp ' + value.toLocaleString();
+                        }
+                    }
+                }
+            }
+        }
+    });
+</script>
     <!-- Header Stats -->
     <div class="row mb-4">
         <div class="col-xl-3 col-md-6">

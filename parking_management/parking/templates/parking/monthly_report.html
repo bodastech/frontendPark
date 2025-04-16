@@ -1,0 +1,219 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <!-- Sidebar -->
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5>Monthly Report</h5>
+                </div>
+                <div class="card-body">
+                    <div class="form-group">
+                        <label for="month">Select Month:</label>
+                        <select class="form-control" id="month" onchange="loadMonthlyReport()">
+                            {% for month in months %}
+                            <option value="{{ month }}" {% if month == selected_month %}selected{% endif %}>
+                                {{ month|date:"F Y" }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="col-md-9">
+            <!-- Overview Cards -->
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="card bg-success text-white">
+                        <div class="card-body">
+                            <h5>Total Vehicles</h5>
+                            <h2>{{ monthly_report.total_vehicles }}</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-info text-white">
+                        <div class="card-body">
+                            <h5>Total Revenue</h5>
+                            <h2>Rp {{ monthly_report.total_revenue|intcomma }}</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-warning text-white">
+                        <div class="card-body">
+                            <h5>Average Duration</h5>
+                            <h2>{{ monthly_report.average_duration }} hours</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-danger text-white">
+                        <div class="card-body">
+                            <h5>Total Transactions</h5>
+                            <h2>{{ monthly_report.transactions|length }}</h2>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts -->
+            <div class="row">
+                <!-- Vehicle Type Distribution -->
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>Vehicle Type Distribution</h5>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="vehicleTypeChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Revenue by Day -->
+                <div class="col-md-6">
+                    <div class="card">
+                        <div class="card-header">
+                            <h5>Revenue by Day</h5>
+                        </div>
+                        <div class="card-body">
+                            <canvas id="revenueChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Transactions Table -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h5>Recent Transactions</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>License Plate</th>
+                                    <th>Entry Time</th>
+                                    <th>Exit Time</th>
+                                    <th>Duration</th>
+                                    <th>Vehicle Type</th>
+                                    <th>Fee</th>
+                                    <th>Operator</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for transaction in monthly_report.transactions %}
+                                <tr>
+                                    <td>{{ transaction.license_plate }}</td>
+                                    <td>{{ transaction.entry_time }}</td>
+                                    <td>{{ transaction.exit_time }}</td>
+                                    <td>{{ transaction.duration }} hours</td>
+                                    <td>{{ transaction.vehicle_type }}</td>
+                                    <td>Rp {{ transaction.fee|intcomma }}</td>
+                                    <td>{{ transaction.operator }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    // Vehicle Type Distribution Chart
+    const vehicleTypeCtx = document.getElementById('vehicleTypeChart').getContext('2d');
+    const vehicleTypeChart = new Chart(vehicleTypeCtx, {
+        type: 'pie',
+        data: {
+            labels: [
+                {% for type in monthly_report.vehicle_types %}
+                '{{ type.vehicle_type }}',
+                {% endfor %}
+            ],
+            datasets: [{
+                data: [
+                    {% for type in monthly_report.vehicle_types %}
+                    {{ type.count }},
+                    {% endfor %}
+                ],
+                backgroundColor: [
+                    'rgba(54, 162, 235, 0.5)',
+                    'rgba(255, 99, 132, 0.5)',
+                    'rgba(75, 192, 192, 0.5)',
+                    'rgba(153, 102, 255, 0.5)'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                title: {
+                    display: true,
+                    text: 'Vehicle Type Distribution'
+                }
+            }
+        }
+    });
+
+    // Revenue by Day Chart
+    const revenueCtx = document.getElementById('revenueChart').getContext('2d');
+    const revenueChart = new Chart(revenueCtx, {
+        type: 'line',
+        data: {
+            labels: [
+                {% for day in monthly_report.revenue_by_day %}
+                '{{ day.day|date:"d M" }}',
+                {% endfor %}
+            ],
+            datasets: [{
+                label: 'Daily Revenue',
+                data: [
+                    {% for day in monthly_report.revenue_by_day %}
+                    {{ day.amount }},
+                    {% endfor %}
+                ],
+                borderColor: 'rgb(75, 192, 192)',
+                tension: 0.1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'top',
+                },
+                title: {
+                    display: true,
+                    text: 'Daily Revenue Trend'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return 'Rp ' + value.toLocaleString();
+                        }
+                    }
+                }
+            }
+        }
+    });
+</script>
+{% endblock %}

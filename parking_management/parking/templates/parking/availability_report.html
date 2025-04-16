@@ -1,0 +1,137 @@
+{% extends 'parking/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h4 class="mb-0">Parking Availability Report</h4>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="refreshData()">
+                            Refresh
+                        </button>
+                        <button class="btn btn-secondary" onclick="exportToExcel()">
+                            Export to Excel
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-4">
+                        <!-- Parking Statistics -->
+                        <div class="col-md-3">
+                            <div class="card text-white bg-primary">
+                                <div class="card-body">
+                                    <h5 class="card-title">Total Spots</h5>
+                                    <p class="card-text display-6">{{ total_spots }}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card text-white bg-success">
+                                <div class="card-body">
+                                    <h5 class="card-title">Available Spots</h5>
+                                    <p class="card-text display-6">{{ available_spots }}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card text-white bg-info">
+                                <div class="card-body">
+                                    <h5 class="card-title">Occupied Spots</h5>
+                                    <p class="card-text display-6">{{ occupied_spots }}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card text-white bg-warning">
+                                <div class="card-body">
+                                    <h5 class="card-title">Occupancy Rate</h5>
+                                    <p class="card-text display-6">{{ occupancy_rate }}%</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Parking Spot Status -->
+                    <div class="card mb-4">
+                        <div class="card-header">
+                            <h5 class="mb-0">Parking Spot Status</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>Floor</th>
+                                            <th>Spot Number</th>
+                                            <th>Type</th>
+                                            <th>Status</th>
+                                            <th>Vehicle</th>
+                                            <th>Entry Time</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for spot in spots %}
+                                        <tr>
+                                            <td>{{ spot.floor }}</td>
+                                            <td>{{ spot.spot_number }}</td>
+                                            <td>{{ spot.spot_type }}</td>
+                                            <td>
+                                                <span class="badge bg-{{ spot.status_class }}">
+                                                    {{ spot.status_display }}
+                                                </span>
+                                            </td>
+                                            <td>{{ spot.vehicle }}</td>
+                                            <td>{{ spot.entry_time }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Floor-wise Distribution -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Floor-wise Distribution</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="row">
+                                {% for floor in floors %}
+                                <div class="col-md-4 mb-3">
+                                    <div class="card">
+                                        <div class="card-body">
+                                            <h5 class="card-title">Floor {{ floor.floor }}</h5>
+                                            <p class="card-text">
+                                                <strong>Total Spots:</strong> {{ floor.total_spots }}<br>
+                                                <strong>Available:</strong> {{ floor.available }}<br>
+                                                <strong>Occupied:</strong> {{ floor.occupied }}<br>
+                                                <strong>Occupancy Rate:</strong> {{ floor.occupancy_rate }}%
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function refreshData() {
+    location.reload();
+}
+
+function exportToExcel() {
+    // Implement Excel export logic
+    alert('Exporting to Excel...');
+}
+</script>
+{% endblock %}

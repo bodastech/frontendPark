@@ -1,5 +1,346 @@
 # API Documentation - Sistem Parkir RSI BNA
 
+## Base URL
+- Production: `https://your-domain.com/api/`
+- Development: `http://localhost:8000/api/`
+
+## Authentication
+All endpoints require authentication. Use JWT token in Authorization header:
+```
+Authorization: Bearer <your-jwt-token>
+```
+
+## Error Responses
+All endpoints return standardized error responses:
+```json
+{
+    "success": false,
+    "message": "Error description",
+    "errors": {
+        "field_name": ["error message"]
+    }
+}
+```
+
+## Endpoints
+
+### 1. Vehicle Management
+
+#### Get Vehicle List
+```
+GET /api/vehicles/
+```
+- Returns list of all registered vehicles
+- Response:
+```json
+{
+    "success": true,
+    "vehicles": [
+        {
+            "id": 1,
+            "license_plate": "B 1234 CD",
+            "vehicle_type": "CAR",
+            "owner_name": "John Doe",
+            "owner_contact": "08123456789"
+        }
+    ]
+}
+```
+
+#### Create Vehicle
+```
+POST /api/vehicles/
+```
+- Required fields: license_plate, vehicle_type, owner_name, owner_contact
+- Response:
+```json
+{
+    "success": true,
+    "message": "Vehicle created successfully",
+    "vehicle": {
+        "id": 1,
+        "license_plate": "B 1234 CD"
+    }
+}
+```
+
+### 2. Parking Entry
+
+#### Process Entry
+```
+POST /api/process-entry/
+```
+- Required fields: license_plate, vehicle_type
+- Response:
+```json
+{
+    "success": true,
+    "message": "Entry processed successfully",
+    "ticket": {
+        "id": 1,
+        "license_plate": "B 1234 CD",
+        "entry_time": "2025-04-16T16:49:42+07:00",
+        "spot_number": "A1"
+    }
+}
+```
+
+### 3. Parking Exit
+
+#### Process Exit
+```
+POST /api/process-exit/
+```
+- Required fields: ticket_number
+- Response:
+```json
+{
+    "success": true,
+    "message": "Exit processed successfully",
+    "data": {
+        "fee": 6000,
+        "duration": 1.5,
+        "entry_time": "2025-04-16T16:49:42+07:00",
+        "exit_time": "2025-04-16T18:19:42+07:00",
+        "vehicle_type": "CAR"
+    }
+}
+```
+
+### 4. Reports
+
+#### Daily Report
+```
+GET /api/daily-report/
+```
+- Returns statistics for current day
+- Response:
+```json
+{
+    "total_vehicles": 150,
+    "total_revenue": 900000,
+    "average_duration": 2.5,
+    "vehicle_types": [
+        {"vehicle_type": "CAR", "count": 100},
+        {"vehicle_type": "MOTORCYCLE", "count": 50}
+    ],
+    "revenue_by_hour": [
+        {"hour": "08:00", "amount": 150000},
+        {"hour": "09:00", "amount": 200000}
+    ]
+}
+```
+
+#### Availability Report
+```
+GET /api/availability-report/
+```
+- Returns parking spot status
+- Response:
+```json
+{
+    "total_spots": 200,
+    "available_spots": 50,
+    "occupied_spots": 150,
+    "occupancy_rate": 75.0,
+    "spots": [
+        {
+            "floor": 1,
+            "spot_number": "A1",
+            "status": "OCCUPIED",
+            "status_class": "danger",
+            "vehicle": "B 1234 CD"
+        }
+    ]
+}
+```
+
+### 5. Operator Management
+
+#### List Operators
+```
+GET /api/operators/
+```
+- Returns list of all operators
+- Response:
+```json
+{
+    "operators": [
+        {
+            "id": 1,
+            "username": "operator1",
+            "first_name": "John",
+            "last_name": "Doe",
+            "email": "john@example.com"
+        }
+    ]
+}
+
+#### Create Operator
+```
+POST /api/operators/
+```
+- Required fields: username, password, first_name, last_name, email
+- Response:
+```json
+{
+    "success": true,
+    "message": "Operator created successfully",
+    "operator": {
+        "id": 1,
+        "username": "operator1"
+    }
+}
+```
+
+### 6. Shift Management
+
+#### Start Shift
+```
+POST /api/shifts/start/
+```
+- Optional fields: notes
+- Response:
+```json
+{
+    "success": true,
+    "message": "Shift started successfully",
+    "shift": {
+        "id": 1,
+        "start_time": "2025-04-16T16:49:42+07:00"
+    }
+}
+
+#### End Shift
+```
+PUT /api/shifts/end/
+```
+- Response:
+```json
+{
+    "success": true,
+    "message": "Shift ended successfully",
+    "shift": {
+        "id": 1,
+        "end_time": "2025-04-16T23:59:59+07:00",
+        "total_vehicles": 150,
+        "total_revenue": 900000
+    }
+}
+
+### 7. Search Features
+
+#### Search Vehicle
+```
+GET /api/search-vehicle/?q=B1234
+```
+- Query parameters: q (search term)
+- Response:
+```json
+{
+    "vehicles": [
+        {
+            "id": 1,
+            "license_plate": "B 1234 CD",
+            "vehicle_type": "CAR",
+            "owner_name": "John Doe"
+        }
+    ]
+}
+
+#### Search Parking Spot
+```
+GET /api/search-parking-spot/?q=A1
+```
+- Query parameters: q (search term)
+- Response:
+```json
+{
+    "spots": [
+        {
+            "id": 1,
+            "spot_number": "A1",
+            "spot_type": "CAR",
+            "status": "OCCUPIED",
+            "floor": 1
+        }
+    ]
+}
+
+## Webhooks
+
+### 1. Vehicle Entry Notification
+```
+POST /api/webhooks/vehicle-entry/
+```
+- Payload:
+```json
+{
+    "event": "vehicle_entry",
+    "data": {
+        "license_plate": "B 1234 CD",
+        "entry_time": "2025-04-16T16:49:42+07:00",
+        "spot_number": "A1"
+    }
+}
+```
+
+### 2. Vehicle Exit Notification
+```
+POST /api/webhooks/vehicle-exit/
+```
+- Payload:
+```json
+{
+    "event": "vehicle_exit",
+    "data": {
+        "license_plate": "B 1234 CD",
+        "exit_time": "2025-04-16T18:19:42+07:00",
+        "duration": 1.5,
+        "fee": 6000
+    }
+}
+
+## Error Codes
+
+### Common Error Codes
+- 400: Bad Request
+- 401: Unauthorized
+- 403: Forbidden
+- 404: Not Found
+- 500: Internal Server Error
+
+### Specific Error Codes
+- 409: Conflict (e.g., duplicate entry)
+- 422: Unprocessable Entity (validation errors)
+- 429: Too Many Requests
+
+## Best Practices
+
+1. Always validate vehicle license plates before processing
+2. Use proper error handling for all API calls
+3. Implement rate limiting for search endpoints
+4. Use HTTPS for all production environments
+5. Implement proper logging for all operations
+6. Use pagination for large result sets
+7. Implement caching for frequently accessed data
+8. Use proper error codes and messages
+9. Implement proper authentication and authorization
+10. Use proper input validation
+
+## Security
+
+1. Use HTTPS for all API calls
+2. Implement JWT token authentication
+3. Use proper input validation
+4. Implement rate limiting
+5. Use secure password hashing
+6. Implement proper session management
+7. Use secure database connections
+8. Implement proper logging
+9. Use proper error handling
+10. Implement proper access control
+
 ## System Requirements
 
 ### Hardware Requirements

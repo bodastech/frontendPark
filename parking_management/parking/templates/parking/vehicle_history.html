@@ -1,0 +1,102 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <!-- Vehicle Info -->
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5>Vehicle Information</h5>
+                </div>
+                <div class="card-body">
+                    <h4>{{ vehicle.license_plate }}</h4>
+                    <p><strong>Type:</strong> {{ vehicle.vehicle_type }}</p>
+                    <p><strong>Owner:</strong> {{ vehicle.owner_name }}</p>
+                    <p><strong>Contact:</strong> {{ vehicle.owner_contact }}</p>
+                    <p><strong>Total Visits:</strong> {{ history|length }}</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Parking History -->
+        <div class="col-md-8">
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h5>Parking History</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Session ID</th>
+                                    <th>Entry Time</th>
+                                    <th>Exit Time</th>
+                                    <th>Duration</th>
+                                    <th>Fee</th>
+                                    <th>Parking Spot</th>
+                                    <th>Floor</th>
+                                    <th>Operator</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for session in history %}
+                                <tr>
+                                    <td>{{ session.session_id }}</td>
+                                    <td>{{ session.entry_time }}</td>
+                                    <td>{{ session.exit_time }}</td>
+                                    <td>
+                                        {% if session.duration %}
+                                        {{ session.duration }} hours
+                                        {% else %}
+                                        <span class="text-info">Ongoing</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if session.fee %}
+                                        Rp {{ session.fee|intcomma }}
+                                        {% else %}
+                                        <span class="text-info">Pending</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>{{ session.spot_number }}</td>
+                                    <td>{{ session.floor }}</td>
+                                    <td>{{ session.operator }}</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Statistics -->
+    <div class="row mt-4">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5>Visit Statistics</h5>
+                </div>
+                <div class="card-body">
+                    <p><strong>Average Duration:</strong> 
+                        {{ avg_duration }} hours
+                    </p>
+                    <p><strong>Total Revenue:</strong> 
+                        Rp {{ total_revenue|intcomma }}
+                    </p>
+                    <p><strong>Most Frequent Time:</strong> 
+                        {{ peak_hour }}
+                    </p>
+                    <p><strong>Most Used Floor:</strong> 
+                        {{ most_used_floor }}
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

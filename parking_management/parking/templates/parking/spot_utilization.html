@@ -1,0 +1,241 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daterangepicker/daterangepicker.css">
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <!-- Filters -->
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5>Filters</h5>
+                </div>
+                <div class="card-body">
+                    <form id="filterForm">
+                        <div class="form-group">
+                            <label for="dateRange">Date Range:</label>
+                            <input type="text" class="form-control" id="dateRange" name="dateRange">
+                        </div>
+                        <div class="form-group">
+                            <label for="floor">Floor:</label>
+                            <select class="form-control" id="floor" name="floor">
+                                <option value="">All Floors</option>
+                                {% for floor in floors %}
+                                <option value="{{ floor }}">{{ floor }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="spotType">Spot Type:</label>
+                            <select class="form-control" id="spotType" name="spotType">
+                                <option value="">All Types</option>
+                                <option value="CAR">Car</option>
+                                <option value="MOTORCYCLE">Motorcycle</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary btn-block">Apply Filters</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="col-md-9">
+            <!-- Overview Cards -->
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <div class="card bg-success text-white">
+                        <div class="card-body">
+                            <h5>Total Spots</h5>
+                            <h2>{{ total_spots }}</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-info text-white">
+                        <div class="card-body">
+                            <h5>Occupied Spots</h5>
+                            <h2>{{ occupied_spots }}</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-warning text-white">
+                        <div class="card-body">
+                            <h5>Occupancy Rate</h5>
+                            <h2>{{ occupancy_rate }}%</h2>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="card bg-danger text-white">
+                        <div class="card-body">
+                            <h5>Average Turnover</h5>
+                            <h2>{{ avg_turnover }} times/day</h2>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Floor-wise Utilization -->
+            <div class="card">
+                <div class="card-header">
+                    <h5>Floor-wise Utilization</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>Floor</th>
+                                    <th>Total Spots</th>
+                                    <th>Occupied</th>
+                                    <th>Available</th>
+                                    <th>Occupancy Rate</th>
+                                    <th>Average Duration</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for floor in floor_stats %}
+                                <tr>
+                                    <td>{{ floor.floor }}</td>
+                                    <td>{{ floor.total_spots }}</td>
+                                    <td>{{ floor.occupied }}</td>
+                                    <td>{{ floor.available }}</td>
+                                    <td>{{ floor.occupancy_rate }}%</td>
+                                    <td>{{ floor.avg_duration }} hours</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Spot Utilization Chart -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h5>Spot Utilization Chart</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="spotUtilizationChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/moment/moment.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/daterangepicker/daterangepicker.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize date range picker
+    $('#dateRange').daterangepicker({
+        opens: 'left',
+        startDate: moment().subtract(7, 'days'),
+        endDate: moment(),
+        locale: {
+            format: 'YYYY-MM-DD'
+        }
+    });
+
+    // Add CSRF token to form
+    const form = document.getElementById('filterForm');
+    const csrfToken = document.createElement('input');
+    csrfToken.type = 'hidden';
+    csrfToken.name = 'csrfmiddlewaretoken';
+    csrfToken.value = '{{ csrf_token }}';
+    form.appendChild(csrfToken);
+
+    // Initialize chart
+    const spotCtx = document.getElementById('spotUtilizationChart').getContext('2d');
+    const spotChart = new Chart(spotCtx, {
+        type: 'bar',
+        data: {
+            labels: JSON.parse('{{ floor_labels|safe }}'),
+            datasets: [{
+                label: 'Occupied Spots',
+                data: JSON.parse('{{ occupied_spots|safe }}'),
+                backgroundColor: 'rgba(54, 162, 235, 0.5)',
+                borderColor: 'rgba(54, 162, 235, 1)',
+                borderWidth: 1
+            }, {
+                label: 'Available Spots',
+                data: JSON.parse('{{ available_spots|safe }}'),
+                backgroundColor: 'rgba(75, 192, 192, 0.5)',
+                borderColor: 'rgba(75, 192, 192, 1)',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: {
+                    position: 'top'
+                },
+                title: {
+                    display: true,
+                    text: 'Parking Spot Utilization by Floor'
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+
+    // Handle form submission
+    document.getElementById('filterForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        const formData = new FormData(this);
+        const data = Object.fromEntries(formData.entries());
+        
+        // Send AJAX request to update data
+        fetch('{% url "parking:spot_utilization_data" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            },
+            body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Update chart data
+            spotChart.data.labels = data.labels;
+            spotChart.data.datasets[0].data = data.occupied;
+            spotChart.data.datasets[1].data = data.available;
+            spotChart.update();
+            
+            // Update table data
+            const tbody = document.querySelector('table tbody');
+            tbody.innerHTML = data.floor_stats.map(floor => 
+                `<tr>
+                    <td>${floor.floor}</td>
+                    <td>${floor.total_spots}</td>
+                    <td>${floor.occupied}</td>
+                    <td>${floor.available}</td>
+                    <td>${floor.occupancy_rate}%</td>
+                    <td>${floor.avg_duration} hours</td>
+                </tr>`
+            ).join('');
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Failed to update data. Please try again.');
+        });
+    });
+});
+</script>
+{% endblock %}

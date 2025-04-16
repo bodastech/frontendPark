@@ -1,0 +1,179 @@
+{% extends 'parking/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h4 class="mb-0">Daily Parking Report</h4>
+                    <div class="btn-group">
+                        <button class="btn btn-primary" onclick="exportToExcel()">
+                            Export to Excel
+                        </button>
+                        <button class="btn btn-secondary" onclick="printReport()">
+                            Print Report
+                        </button>
+                    </div>
+                </div>
+                <div class="card-body">
+                    <div class="row mb-4">
+                        <div class="col-md-3">
+                            <div class="card text-white bg-primary">
+                                <div class="card-body">
+                                    <h5 class="card-title">Total Vehicles</h5>
+                                    <p class="card-text display-6">{{ total_vehicles }}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card text-white bg-success">
+                                <div class="card-body">
+                                    <h5 class="card-title">Total Revenue</h5>
+                                    <p class="card-text display-6">Rp {{ total_revenue }}</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card text-white bg-info">
+                                <div class="card-body">
+                                    <h5 class="card-title">Average Duration</h5>
+                                    <p class="card-text display-6">{{ average_duration }} hours</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card text-white bg-warning">
+                                <div class="card-body">
+                                    <h5 class="card-title">Peak Hours</h5>
+                                    <p class="card-text display-6">{{ peak_hours }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <!-- Vehicle Type Distribution -->
+                        <div class="col-md-6">
+                            <div class="card mb-4">
+                                <div class="card-header">
+                                    <h5 class="mb-0">Vehicle Type Distribution</h5>
+                                </div>
+                                <div class="card-body">
+                                    <canvas id="vehicleTypeChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Revenue by Hour -->
+                        <div class="col-md-6">
+                            <div class="card mb-4">
+                                <div class="card-header">
+                                    <h5 class="mb-0">Revenue by Hour</h5>
+                                </div>
+                                <div class="card-body">
+                                    <canvas id="revenueChart"></canvas>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Detailed Transactions -->
+                    <div class="card">
+                        <div class="card-header">
+                            <h5 class="mb-0">Detailed Transactions</h5>
+                        </div>
+                        <div class="card-body">
+                            <div class="table-responsive">
+                                <table class="table table-striped">
+                                    <thead>
+                                        <tr>
+                                            <th>License Plate</th>
+                                            <th>Entry Time</th>
+                                            <th>Exit Time</th>
+                                            <th>Duration</th>
+                                            <th>Vehicle Type</th>
+                                            <th>Fee</th>
+                                            <th>Operator</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {% for transaction in transactions %}
+                                        <tr>
+                                            <td>{{ transaction.license_plate }}</td>
+                                            <td>{{ transaction.entry_time }}</td>
+                                            <td>{{ transaction.exit_time }}</td>
+                                            <td>{{ transaction.duration }} hours</td>
+                                            <td>{{ transaction.vehicle_type }}</td>
+                                            <td>Rp {{ transaction.fee }}</td>
+                                            <td>{{ transaction.operator }}</td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+// Initialize charts
+const vehicleTypeCtx = document.getElementById('vehicleTypeChart').getContext('2d');
+const vehicleTypeChart = new Chart(vehicleTypeCtx, {
+    type: 'pie',
+    data: {
+        labels: {{ vehicle_types|safe }},
+        datasets: [{
+            data: {{ vehicle_counts|safe }},
+            backgroundColor: [
+                'rgba(255, 99, 132, 0.5)',
+                'rgba(54, 162, 235, 0.5)',
+                'rgba(255, 206, 86, 0.5)',
+                'rgba(75, 192, 192, 0.5)'
+            ]
+        }]
+    },
+    options: {
+        responsive: true
+    }
+});
+
+const revenueCtx = document.getElementById('revenueChart').getContext('2d');
+const revenueChart = new Chart(revenueCtx, {
+    type: 'line',
+    data: {
+        labels: {{ hours|safe }},
+        datasets: [{
+            label: 'Revenue',
+            data: {{ revenue_by_hour|safe }},
+            borderColor: 'rgba(54, 162, 235, 1)',
+            tension: 0.1
+        }]
+    },
+    options: {
+        responsive: true,
+        scales: {
+            y: {
+                beginAtZero: true
+            }
+        }
+    }
+});
+
+// Export functions
+function exportToExcel() {
+    // Implement Excel export logic
+    alert('Exporting to Excel...');
+}
+
+function printReport() {
+    window.print();
+}
+</script>
+{% endblock %}
