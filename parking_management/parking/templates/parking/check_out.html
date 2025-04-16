@@ -1,0 +1,143 @@
+{% extends 'parking/base.html' %}
+
+{% block content %}
+<div class="container">
+    <div class="card">
+        <div class="card-header bg-warning text-white">
+            <h4 class="mb-0">Check-out Vehicle</h4>
+        </div>
+        <div class="card-body">
+            <form method="post" id="checkoutForm">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label for="ticket_number" class="form-label">Nomor Tiket</label>
+                    <input type="text" class="form-control" id="ticket_number" name="ticket_number" required>
+                </div>
+                <div class="mb-3">
+                    <label for="license_plate" class="form-label">Plat Nomor</label>
+                    <input type="text" class="form-control" id="license_plate" name="license_plate">
+                </div>
+                
+                <div class="card mt-4 mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Informasi Parkir</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <p><strong>Status:</strong> <span id="status">-</span></p>
+                                <p><strong>Waktu Masuk:</strong> <span id="entry_time">-</span></p>
+                                <p><strong>Durasi:</strong> <span id="duration">-</span></p>
+                            </div>
+                            <div class="col-md-6">
+                                <p><strong>Jenis Kendaraan:</strong> <span id="vehicle_type">-</span></p>
+                                <p><strong>Biaya:</strong> <span id="fee">-</span></p>
+                                <p><strong>Status Pembayaran:</strong> <span id="payment_status">-</span></p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="text-center">
+                    <button type="button" class="btn btn-info" id="checkButton">Cek Tiket</button>
+                    <button type="submit" class="btn btn-warning" id="checkoutButton" disabled>Proses Keluar</button>
+                    <a href="{% url 'parking:dashboard' %}" class="btn btn-secondary">Batal</a>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% block extra_js %}
+<script>
+document.getElementById('checkButton').addEventListener('click', function() {
+    const ticketNumber = document.getElementById('ticket_number').value;
+    const licensePlate = document.getElementById('license_plate').value;
+    
+    if (!ticketNumber) {
+        alert('Masukkan nomor tiket!');
+        return;
+    }
+    
+    fetch(`/api/cek-tiket?tiket=${ticketNumber}&plat=${licensePlate}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                updateInfoDisplay(data.data);
+                document.getElementById('checkoutButton').disabled = false;
+            } else {
+                alert(data.message || 'Gagal mengecek tiket');
+            }
+        })
+        .catch(error => {
+            alert('Kesalahan koneksi: ' + error);
+        });
+});
+
+document.getElementById('checkoutForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const ticketNumber = document.getElementById('ticket_number').value;
+    const licensePlate = document.getElementById('license_plate').value;
+    
+    fetch('/api/keluar', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+        },
+        body: JSON.stringify({
+            tiket: ticketNumber,
+            plat: licensePlate
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            showExitSuccess(data.data);
+            clearForm();
+        } else {
+            alert(data.message || 'Gagal memproses keluar');
+        }
+    })
+    .catch(error => {
+        alert('Kesalahan koneksi: ' + error);
+    });
+});
+
+function updateInfoDisplay(data) {
+    document.getElementById('status').textContent = data.status.is_valid ? 'Aktif' : 'Tidak Valid';
+    document.getElementById('entry_time').textContent = data.waktu_masuk;
+    document.getElementById('duration').textContent = data.durasi_current;
+    document.getElementById('vehicle_type').textContent = data.jenis;
+    document.getElementById('fee').textContent = `Rp ${data.estimasi_biaya.toLocaleString()}`;
+    document.getElementById('payment_status').textContent = data.status.is_paid ? 'Sudah Dibayar' : 'Belum Dibayar';
+}
+
+function showExitSuccess(data) {
+    const message = `
+        Kendaraan berhasil keluar!
+        
+        Tiket: ${data.tiket}
+        Plat: ${data.plat}
+        Waktu Masuk: ${data.waktu_masuk}
+        Waktu Keluar: ${data.waktu_keluar}
+        Durasi: ${data.durasi}
+        Tarif: Rp ${data.tarif.toLocaleString()}
+    `;
+    alert(message);
+}
+
+function clearForm() {
+    document.getElementById('ticket_number').value = '';
+    document.getElementById('license_plate').value = '';
+    document.getElementById('checkoutButton').disabled = true;
+    
+    const fields = ['status', 'entry_time', 'duration', 'vehicle_type', 'fee', 'payment_status'];
+    fields.forEach(field => {
+        document.getElementById(field).textContent = '-';
+    });
+}
+</script>
+{% endblock %}
+{% endblock %} 
