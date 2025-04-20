@@ -4,76 +4,108 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Parking Management System</title>
+    <!-- Bootstrap CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Font Awesome -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    {% block extra_css %}{% endblock %}
+    <style>
+        .sidebar {
+            min-height: 100vh;
+            background-color: #343a40;
+            padding-top: 20px;
+        }
+        .sidebar .nav-link {
+            color: #fff;
+            padding: 10px 20px;
+        }
+        .sidebar .nav-link:hover {
+            background-color: #495057;
+        }
+        .sidebar .nav-link.active {
+            background-color: #0d6efd;
+        }
+        .main-content {
+            padding: 20px;
+        }
+        .navbar {
+            box-shadow: 0 2px 4px rgba(0,0,0,.1);
+        }
+    </style>
 </head>
 <body>
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container">
-            <a class="navbar-brand" href="{% url 'parking:dashboard' %}">Parking Management</a>
-            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
-                <span class="navbar-toggler-icon"></span>
-            </button>
-            <div class="collapse navbar-collapse" id="navbarNav">
-                <ul class="navbar-nav me-auto">
-                    <li class="nav-item">
-                        <a class="nav-link" href="{% url 'parking:dashboard' %}">Dashboard</a>
-                    </li>
-                    {% if request.user.is_authenticated %}
-                        {% if active_shift %}
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'parking:vehicle_list' %}">Vehicles</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'parking:parking_spot_list' %}">Parking Spots</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'parking:check_in' %}">Check In</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'parking:session_list' %}">Sessions</a>
-                            </li>
-                            <li class="nav-item">
-                                <a class="nav-link" href="{% url 'parking:view_captureticket' %}">Server Data</a>
-                            </li>
-                        {% endif %}
-                    {% endif %}
-                </ul>
-                <ul class="navbar-nav">
-                    {% if request.user.is_authenticated %}
-                        <li class="nav-item">
-                            <span class="nav-link text-light">Welcome, {{ request.user.username }}</span>
-                        </li>
-                        {% if active_shift %}
-                            <li class="nav-item">
-                                <a class="nav-link text-success" href="{% url 'parking:end_shift' %}">End Shift</a>
-                            </li>
-                        {% else %}
-                            <li class="nav-item">
-                                <a class="nav-link text-success" href="{% url 'parking:start_shift' %}">Start Shift</a>
-                            </li>
-                        {% endif %}
-                        <li class="nav-item">
-                            <a class="nav-link text-warning" href="{% url 'parking:logout' %}">Logout</a>
-                        </li>
-                    {% endif %}
-                </ul>
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            <div class="col-md-2 sidebar">
+                <div class="text-center mb-4">
+                    <h4 class="text-white">Parking System</h4>
+                </div>
+                <nav class="nav flex-column">
+                    <a class="nav-link {% if request.path == '/' %}active{% endif %}" href="{% url 'parking:dashboard' %}">
+                        <i class="fas fa-tachometer-alt me-2"></i> Dashboard
+                    </a>
+                    <a class="nav-link {% if 'check-in' in request.path %}active{% endif %}" href="{% url 'parking:check_in' %}">
+                        <i class="fas fa-sign-in-alt me-2"></i> Check In
+                    </a>
+                    <a class="nav-link {% if 'check-out' in request.path %}active{% endif %}" href="{% url 'parking:check_out' %}">
+                        <i class="fas fa-sign-out-alt me-2"></i> Check Out
+                    </a>
+                    <a class="nav-link {% if 'vehicles' in request.path %}active{% endif %}" href="{% url 'parking:vehicle_list' %}">
+                        <i class="fas fa-car me-2"></i> Vehicles
+                    </a>
+                    <a class="nav-link {% if 'spots' in request.path %}active{% endif %}" href="{% url 'parking:parking_spot_list' %}">
+                        <i class="fas fa-parking me-2"></i> Parking Spots
+                    </a>
+                    <a class="nav-link {% if 'sessions' in request.path %}active{% endif %}" href="{% url 'parking:session_list' %}">
+                        <i class="fas fa-history me-2"></i> Sessions
+                    </a>
+                    <a class="nav-link {% if 'shifts' in request.path %}active{% endif %}" href="{% url 'parking:shift_list' %}">
+                        <i class="fas fa-clock me-2"></i> Shifts
+                    </a>
+                </nav>
+            </div>
+
+            <!-- Main Content -->
+            <div class="col-md-10 main-content">
+                <!-- Top Navigation -->
+                <nav class="navbar navbar-expand-lg navbar-light bg-white mb-4">
+                    <div class="container-fluid">
+                        <div class="navbar-text">
+                            Welcome, {{ request.user.username }}
+                        </div>
+                        <div class="ms-auto">
+                            {% if active_shift %}
+                                <span class="badge bg-success me-3">Active Shift</span>
+                                <a href="{% url 'parking:end_shift' %}" class="btn btn-outline-danger btn-sm me-2">End Shift</a>
+                            {% else %}
+                                <a href="{% url 'parking:start_shift' %}" class="btn btn-outline-success btn-sm me-2">Start Shift</a>
+                            {% endif %}
+                            <a href="{% url 'parking:logout' %}" class="btn btn-outline-dark btn-sm">Logout</a>
+                        </div>
+                    </div>
+                </nav>
+
+                <!-- Messages -->
+                {% if messages %}
+                    {% for message in messages %}
+                        <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                            {{ message }}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+
+                <!-- Main Content Block -->
+                {% block content %}{% endblock %}
             </div>
         </div>
-    </nav>
-
-    <div class="container mt-4">
-        {% if messages %}
-            {% for message in messages %}
-                <div class="alert alert-{{ message.tags }}">
-                    {{ message }}
-                </div>
-            {% endfor %}
-        {% endif %}
-
-        {% block content %}
-        {% endblock %}
     </div>
 
+    <!-- Bootstrap Bundle with Popper -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    {% block extra_js %}{% endblock %}
 </body>
 </html> 

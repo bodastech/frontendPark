@@ -4,32 +4,23 @@ from django.contrib.auth.models import User
 
 class Shift(models.Model):
     operator = models.ForeignKey(User, on_delete=models.CASCADE)
-    start_time = models.DateTimeField(default=timezone.now)
+    start_time = models.DateTimeField(auto_now_add=True)
     end_time = models.DateTimeField(null=True, blank=True)
+    notes = models.TextField(blank=True, null=True)
     is_active = models.BooleanField(default=True)
     total_vehicles = models.IntegerField(default=0)
     total_revenue = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    notes = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return f"{self.operator.username}'s shift on {self.start_time.strftime('%Y-%m-%d %H:%M')}"
     
     def end_shift(self):
-        if self.is_active:
-            self.end_time = timezone.now()
-            self.is_active = False
-            # Calculate totals
-            from_time = self.start_time
-            to_time = self.end_time
-            sessions = ParkingSession.objects.filter(
-                check_in_time__gte=from_time,
-                check_in_time__lte=to_time,
-                created_by=self.operator
-            )
-            self.total_vehicles = sessions.count()
-            self.total_revenue = sum(s.fee or 0 for s in sessions)
-            self.save()
+        self.end_time = timezone.now()
+        self.is_active = False
+        self.save()
+    
+    def __str__(self):
+        return f"Shift {self.id} - {self.operator.username} ({self.start_time.strftime('%Y-%m-%d %H:%M')})"
+    
+    class Meta:
+        ordering = ['-start_time']
 
 class Vehicle(models.Model):
     VEHICLE_TYPES = [
@@ -115,19 +106,20 @@ class ParkingSession(models.Model):
             self.save()
 
 class Captureticket(models.Model):
-    id = models.AutoField(primary_key=True)
-    plat_no = models.CharField(max_length=50)  # Increased length to 50
-    date_masuk = models.DateTimeField()
-    date_keluar = models.DateTimeField(null=True, blank=True)
-    status = models.CharField(max_length=50)
-    biaya = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    timestamp = models.DateTimeField(auto_now_add=True)
-    vehicle_type = models.CharField(max_length=50, null=True, blank=True)
+    NoTicket = models.CharField(max_length=50)
+    PlatNo = models.CharField(max_length=20)
+    DateMasuk = models.DateTimeField()
+    DateKeluar = models.DateTimeField(null=True, blank=True)
+    GateMasuk = models.CharField(max_length=20)
+    GateKeluar = models.CharField(max_length=20, null=True, blank=True)
+    JenisKendaraan = models.CharField(max_length=20)
+    Biaya = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    Operator = models.CharField(max_length=50, null=True, blank=True)
+    Status = models.CharField(max_length=20)
 
     class Meta:
         managed = False
-        db_table = 'captureticket'
-        ordering = ['-date_masuk']
+        db_table = 'captureticket'  # This should match the actual table name in PostgreSQL
 
     def __str__(self):
-        return f"{self.plat_no} - {self.date_masuk}"
+        return f"{self.PlatNo} - {self.DateMasuk}"

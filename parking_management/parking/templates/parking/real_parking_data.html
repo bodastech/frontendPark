@@ -1,0 +1,135 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container-fluid">
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Total Kendaraan Hari Ini</h5>
+                    <h2 class="card-text">{{ summary.total_kendaraan }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Kendaraan Aktif</h5>
+                    <h2 class="card-text">{{ summary.kendaraan_aktif }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Kendaraan Keluar Hari Ini</h5>
+                    <h2 class="card-text">{{ summary.kendaraan_keluar }}</h2>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">Total Pendapatan Hari Ini</h5>
+                    <h2 class="card-text">Rp {{ summary.total_pendapatan|floatformat:0 }}</h2>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Tickets -->
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">Kendaraan Aktif</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>No. Ticket</th>
+                            <th>Waktu Masuk</th>
+                            <th>Plat Nomor</th>
+                            <th>Jenis Kendaraan</th>
+                            <th>Gate Masuk</th>
+                            <th>Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ticket in active_tickets %}
+                        <tr>
+                            <td>{{ ticket.NoTicket }}</td>
+                            <td>{{ ticket.DateMasuk }}</td>
+                            <td>{{ ticket.PlatNo }}</td>
+                            <td>{{ ticket.JenisKendaraan }}</td>
+                            <td>{{ ticket.GateMasuk }}</td>
+                            <td>
+                                <button class="btn btn-primary btn-sm" onclick="processCheckout('{{ ticket.NoTicket }}')">
+                                    Checkout
+                                </button>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="6" class="text-center">Tidak ada kendaraan aktif</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Completed Tickets -->
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">Kendaraan Keluar Hari Ini</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped">
+                    <thead>
+                        <tr>
+                            <th>No. Ticket</th>
+                            <th>Waktu Masuk</th>
+                            <th>Waktu Keluar</th>
+                            <th>Plat Nomor</th>
+                            <th>Jenis Kendaraan</th>
+                            <th>Gate</th>
+                            <th>Biaya</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for ticket in completed_tickets %}
+                        <tr>
+                            <td>{{ ticket.NoTicket }}</td>
+                            <td>{{ ticket.DateMasuk }}</td>
+                            <td>{{ ticket.DateKeluar }}</td>
+                            <td>{{ ticket.PlatNo }}</td>
+                            <td>{{ ticket.JenisKendaraan }}</td>
+                            <td>{{ ticket.GateKeluar }}</td>
+                            <td>Rp {{ ticket.Biaya|floatformat:0 }}</td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="7" class="text-center">Belum ada kendaraan keluar hari ini</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function processCheckout(ticketNumber) {
+    if (confirm('Proses checkout untuk ticket ' + ticketNumber + '?')) {
+        // Implementasi proses checkout akan ditambahkan nanti
+        alert('Fitur checkout akan segera diimplementasikan');
+    }
+}
+</script>
+{% endblock %} 

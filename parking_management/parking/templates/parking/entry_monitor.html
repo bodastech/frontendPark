@@ -1,0 +1,181 @@
+{% extends 'parking/base.html' %}
+{% load static %}
+
+{% block title %}Monitor Parkir Masuk{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row mb-4">
+        <div class="col">
+            <h2>Monitor Parkir Masuk</h2>
+            <p class="text-muted">Data dari Gate Masuk (192.168.2.7)</p>
+        </div>
+        <div class="col-auto">
+            <button class="btn btn-primary" onclick="refreshData()">
+                <i class="fas fa-sync"></i> Refresh
+            </button>
+        </div>
+    </div>
+
+    <!-- Statistics Cards -->
+    <div class="row mb-4">
+        <div class="col-md-3">
+            <div class="card bg-primary text-white">
+                <div class="card-body">
+                    <h5 class="card-title">Total Hari Ini</h5>
+                    <h3 id="totalToday">0</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <h5 class="card-title">Jam Terakhir</h5>
+                    <h3 id="lastHour">0</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-info text-white">
+                <div class="card-body">
+                    <h5 class="card-title">Status Gate</h5>
+                    <h3 id="gateStatus">-</h3>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-3">
+            <div class="card bg-warning text-dark">
+                <div class="card-body">
+                    <h5 class="card-title">Koneksi Client</h5>
+                    <h3 id="clientStatus">-</h3>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recent Entries Table -->
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">Data Masuk Terbaru</h5>
+        </div>
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead>
+                        <tr>
+                            <th>Waktu</th>
+                            <th>No. Tiket</th>
+                            <th>Plat Nomor</th>
+                            <th>Gate</th>
+                            <th>Operator</th>
+                            <th>Status</th>
+                            <th>Gambar</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recentEntriesBody">
+                        <!-- Data will be populated by JavaScript -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let lastUpdate = new Date();
+
+function refreshData() {
+    fetch('/api/entry-monitor-data/')
+        .then(response => response.json())
+        .then(data => {
+            updateStatistics(data.statistics);
+            updateRecentEntries(data.recent_entries);
+            updateStatus(data.status);
+            lastUpdate = new Date();
+        })
+        .catch(error => {
+            console.error('Error fetching data:', error);
+            document.getElementById('clientStatus').textContent = 'ERROR';
+            document.getElementById('clientStatus').style.color = 'red';
+        });
+}
+
+function updateStatistics(stats) {
+    document.getElementById('totalToday').textContent = stats.total_today;
+    document.getElementById('lastHour').textContent = stats.last_hour;
+    document.getElementById('gateStatus').textContent = stats.gate_status;
+    document.getElementById('clientStatus').textContent = stats.client_status;
+}
+
+function updateRecentEntries(entries) {
+    const tbody = document.getElementById('recentEntriesBody');
+    tbody.innerHTML = '';
+    
+    entries.forEach(entry => {
+        const row = document.createElement('tr');
+        const time = new Date(entry.timestamp);
+        
+        row.innerHTML = `
+            <td>${time.toLocaleTimeString()}</td>
+            <td>${entry.ticket_id}</td>
+            <td>${entry.plate_number}</td>
+            <td>${entry.gate}</td>
+            <td>${entry.operator}</td>
+            <td><span class="badge bg-${entry.status === 'SUCCESS' ? 'success' : 'danger'}">${entry.status}</span></td>
+            <td>
+                ${entry.image ? `<button class="btn btn-sm btn-primary" onclick="showImage('${entry.image}')">
+                    <i class="fas fa-image"></i>
+                </button>` : '-'}
+            </td>
+        `;
+        tbody.appendChild(row);
+    });
+}
+
+function updateStatus(status) {
+    const gateStatus = document.getElementById('gateStatus');
+    const clientStatus = document.getElementById('clientStatus');
+    
+    gateStatus.textContent = status.gate;
+    gateStatus.style.color = status.gate === 'ONLINE' ? 'white' : 'yellow';
+    
+    clientStatus.textContent = status.client;
+    clientStatus.style.color = status.client === 'CONNECTED' ? 'white' : 'red';
+}
+
+function showImage(imageUrl) {
+    // Create modal to show image
+    const modal = document.createElement('div');
+    modal.className = 'modal fade';
+    modal.innerHTML = `
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Gambar Kendaraan</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <img src="${imageUrl}" class="img-fluid" alt="Vehicle Image">
+                </div>
+            </div>
+        </div>
+    `;
+    document.body.appendChild(modal);
+    new bootstrap.Modal(modal).show();
+    
+    // Remove modal from DOM after it's hidden
+    modal.addEventListener('hidden.bs.modal', () => {
+        document.body.removeChild(modal);
+    });
+}
+
+// Initial load
+refreshData();
+
+// Refresh every 5 seconds
+setInterval(refreshData, 5000);
+</script>
+{% endblock %} 

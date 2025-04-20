@@ -1,9 +1,17 @@
-{% extends 'base.html' %}
+{% extends 'parking/base.html' %}
 {% load static %}
 {% load humanize %}
 
 {% block content %}
 <div class="container-fluid">
+    <!-- Database Status Alert -->
+    {% if db_source == 'sqlite_fallback' %}
+    <div class="alert alert-warning alert-dismissible fade show" role="alert">
+        <strong>Perhatian!</strong> Server PostgreSQL tidak tersedia. Aplikasi sedang menggunakan database SQLite lokal.
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {% endif %}
+
     <!-- Header -->
     <div class="row mb-4">
         <div class="col-md-12">
@@ -89,18 +97,18 @@
                     <h5>Current Shift</h5>
                 </div>
                 <div class="card-body">
-                    {% if current_shift %}
+                    {% if active_shift %}
                     <div class="alert alert-info">
-                        <h5>Operator: {{ current_shift.operator.username }}</h5>
-                        <p>Started: {{ current_shift.start_time|date:"H:i" }}</p>
-                        <p>Total Vehicles: {{ current_shift.total_vehicles }}</p>
-                        <p>Total Revenue: Rp {{ current_shift.total_revenue|intcomma }}</p>
+                        <h5>Operator: {{ active_shift.operator.username }}</h5>
+                        <p>Started: {{ active_shift.start_time|date:"H:i" }}</p>
+                        <p>Total Vehicles: {{ active_shift.total_vehicles }}</p>
+                        <p>Total Revenue: Rp {{ active_shift.total_revenue|intcomma }}</p>
                     </div>
                     {% else %}
                     <div class="alert alert-warning">
                         <h5>No Active Shift</h5>
                         <p>Please start a new shift</p>
-                        <a href="{% url 'start_shift' %}" class="btn btn-primary">Start New Shift</a>
+                        <a href="{% url 'parking:start_shift' %}" class="btn btn-primary">Start New Shift</a>
                     </div>
                     {% endif %}
                 </div>
@@ -197,7 +205,7 @@
                     <h5>Vehicle Type Distribution</h5>
                 </div>
                 <div class="card-body">
-                    <canvas id="vehicleTypeChart"></canvas>
+                    <canvas id="vehicleTypeDistChart"></canvas>
                 </div>
             </div>
         </div>
@@ -214,248 +222,15 @@
             </div>
         </div>
     </div>
-</div>
 
-<!-- Chart.js -->
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script>
-    // Vehicle Type Distribution Chart
-    const vehicleTypeCtx = document.getElementById('vehicleTypeChart').getContext('2d');
-    
-    const vehicleTypeChart = new Chart(vehicleTypeCtx, {
-        type: 'pie',
-        data: {
-            labels: [
-                {% for type in vehicle_types %}
-                '{{ type.vehicle_type }}'{% if not forloop.last %},{% endif %}
-                {% endfor %}
-            ],
-            datasets: [{
-                data: [
-                    {% for type in vehicle_types %}
-                    {{ type.count }}{% if not forloop.last %},{% endif %}
-                    {% endfor %}
-                ],
-                backgroundColor: [
-                    'rgba(54, 162, 235, 0.5)',
-                    'rgba(255, 99, 132, 0.5)',
-                    'rgba(75, 192, 192, 0.5)',
-                    'rgba(153, 102, 255, 0.5)'
-                ]
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: {
-                    position: 'top'
-                },
-                title: {
-                    display: true,
-                    text: 'Vehicle Type Distribution'
-                }
-            }
-        }
-    });
-
-    // Revenue Trend Chart
-    const revenueCtx = document.getElementById('revenueChart').getContext('2d');
-    
-    const revenueChart = new Chart(revenueCtx, {
-        type: 'line',
-        data: {
-            labels: [
-                {% for day in revenue_trend %}
-                '{{ day.date|date:"M d" }}'
-                {% if not forloop.last %},{% endif %}
-                {% endfor %}
-            ],
-            datasets: [{
-                label: 'Daily Revenue',
-                data: [
-                    {% for day in revenue_trend %}
-                    {{ day.revenue }}
-                    {% if not forloop.last %},{% endif %}
-                    {% endfor %}
-                ],
-                borderColor: 'rgb(75, 192, 192)',
-                tension: 0.1
-            }]
-        },
-        options: {
-            responsive: true,
-            plugins: {
-                legend: {
-                    position: 'top'
-                },
-                title: {
-                    display: true,
-                    text: 'Revenue Trend'
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    ticks: {
-                        callback: function(value) {
-                            return 'Rp ' + value.toLocaleString();
-                        }
-                    }
-                }
-            }
-        }
-    });
-</script>
-    <!-- Header Stats -->
-    <div class="row mb-4">
-        <div class="col-xl-3 col-md-6">
-            <div class="card bg-primary text-white">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <h6 class="text-uppercase">Total Kendaraan Hari Ini</h6>
-                            <h2 class="mb-0">{{ total_today }}</h2>
-                        </div>
-                        <i class="fas fa-car fa-2x opacity-50"></i>
-                    </div>
-                </div>
+    <!-- Vehicle Distribution -->
+    <div class="col-xl-4 mb-4">
+        <div class="card">
+            <div class="card-header bg-white">
+                <h5 class="mb-0">Distribusi Kendaraan</h5>
             </div>
-        </div>
-        <div class="col-xl-3 col-md-6">
-            <div class="card bg-success text-white">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <h6 class="text-uppercase">Kendaraan Aktif</h6>
-                            <h2 class="mb-0">{{ active_vehicles }}</h2>
-                        </div>
-                        <i class="fas fa-parking fa-2x opacity-50"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-xl-3 col-md-6">
-            <div class="card bg-warning text-white">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <h6 class="text-uppercase">Pendapatan Hari Ini</h6>
-                            <h2 class="mb-0">Rp {{ today_revenue|intcomma }}</h2>
-                        </div>
-                        <i class="fas fa-money-bill fa-2x opacity-50"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div class="col-xl-3 col-md-6">
-            <div class="card bg-info text-white">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-center">
-                        <div>
-                            <h6 class="text-uppercase">Slot Tersedia</h6>
-                            <h2 class="mb-0">{{ available_spots }}</h2>
-                        </div>
-                        <i class="fas fa-square-parking fa-2x opacity-50"></i>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Quick Actions -->
-    <div class="row mb-4">
-        <div class="col-12">
-            <div class="card">
-                <div class="card-header bg-white">
-                    <h5 class="mb-0">Aksi Cepat</h5>
-                </div>
-                <div class="card-body">
-                    <div class="row">
-                        <div class="col-md-3">
-                            <a href="{% url 'parking:check_in' %}" class="btn btn-primary btn-lg w-100 mb-2">
-                                <i class="fas fa-sign-in-alt me-2"></i> Check In
-                            </a>
-                        </div>
-                        <div class="col-md-3">
-                            <a href="{% url 'parking:check_out' %}" class="btn btn-warning btn-lg w-100 mb-2">
-                                <i class="fas fa-sign-out-alt me-2"></i> Check Out
-                            </a>
-                        </div>
-                        <div class="col-md-3">
-                            <a href="{% url 'parking:vehicle_list' %}" class="btn btn-success btn-lg w-100 mb-2">
-                                <i class="fas fa-car me-2"></i> Daftar Kendaraan
-                            </a>
-                        </div>
-                        <div class="col-md-3">
-                            {% if active_shift %}
-                            <a href="{% url 'parking:shift_report' shift_id=active_shift.id %}" class="btn btn-info btn-lg w-100 mb-2">
-                                <i class="fas fa-chart-bar me-2"></i> Laporan Shift
-                            </a>
-                            {% endif %}
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Recent Activity and Vehicle Distribution -->
-    <div class="row">
-        <!-- Recent Activity -->
-        <div class="col-xl-8 mb-4">
-            <div class="card">
-                <div class="card-header bg-white d-flex justify-content-between align-items-center">
-                    <h5 class="mb-0">Aktivitas Terkini</h5>
-                    <a href="{% url 'parking:session_list' %}" class="btn btn-sm btn-primary">Lihat Semua</a>
-                </div>
-                <div class="card-body">
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th>No. Tiket</th>
-                                    <th>Plat Nomor</th>
-                                    <th>Waktu Masuk</th>
-                                    <th>Status</th>
-                                    <th>Durasi</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                {% for session in recent_sessions %}
-                                <tr>
-                                    <td>{{ session.ticket_number }}</td>
-                                    <td>{{ session.vehicle.plate_number }}</td>
-                                    <td>{{ session.check_in_time|date:"Y-m-d H:i" }}</td>
-                                    <td>
-                                        {% if session.is_active %}
-                                        <span class="badge bg-success">Aktif</span>
-                                        {% else %}
-                                        <span class="badge bg-secondary">Selesai</span>
-                                        {% endif %}
-                                    </td>
-                                    <td>{{ session.duration_display }}</td>
-                                </tr>
-                                {% empty %}
-                                <tr>
-                                    <td colspan="5" class="text-center">Tidak ada aktivitas terkini</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Vehicle Distribution -->
-        <div class="col-xl-4 mb-4">
-            <div class="card">
-                <div class="card-header bg-white">
-                    <h5 class="mb-0">Distribusi Kendaraan</h5>
-                </div>
-                <div class="card-body">
-                    <canvas id="vehicleDistChart"></canvas>
-                </div>
+            <div class="card-body">
+                <canvas id="vehicleDistChart"></canvas>
             </div>
         </div>
     </div>
@@ -485,64 +260,181 @@
 {{ hourly_checkouts|json_script:"hourly-checkouts" }}
 
 <script type="text/javascript">
-    const vehicleDist = JSON.parse(document.getElementById('vehicle-dist').textContent);
-    const hourlyLabels = JSON.parse(document.getElementById('hourly-labels').textContent);
-    const hourlyCheckins = JSON.parse(document.getElementById('hourly-checkins').textContent);
-    const hourlyCheckouts = JSON.parse(document.getElementById('hourly-checkouts').textContent);
+(function() {
+    let charts = {};
 
-    document.addEventListener('DOMContentLoaded', function() {
-        // Vehicle Distribution Chart
-        const vehicleCtx = document.getElementById('vehicleDistChart').getContext('2d');
-        new Chart(vehicleCtx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Motor', 'Mobil'],
-                datasets: [{
-                    data: [vehicleDist.motor || 0, vehicleDist.car || 0],
-                    backgroundColor: ['#36A2EB', '#FF6384']
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: {
-                    legend: {
-                        position: 'bottom'
-                    }
-                }
-            }
+    function destroyCharts() {
+        Object.values(charts).forEach(chart => {
+            if (chart) chart.destroy();
         });
+        charts = {};
+    }
 
-        // Hourly Stats Chart
-        const hourlyCtx = document.getElementById('hourlyStatsChart').getContext('2d');
-        new Chart(hourlyCtx, {
-            type: 'line',
-            data: {
-                labels: hourlyLabels,
-                datasets: [{
-                    label: 'Check In',
-                    data: hourlyCheckins,
-                    borderColor: '#36A2EB',
-                    tension: 0.1
-                }, {
-                    label: 'Check Out',
-                    data: hourlyCheckouts,
-                    borderColor: '#FF6384',
-                    tension: 0.1
-                }]
-            },
-            options: {
-                responsive: true,
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        ticks: {
-                            stepSize: 1
+    function initializeCharts() {
+        destroyCharts();
+
+        // Parse data from Django context
+        const vehicleDist = JSON.parse(document.getElementById('vehicle-dist').textContent);
+        const hourlyLabels = JSON.parse(document.getElementById('hourly-labels').textContent);
+        const hourlyCheckins = JSON.parse(document.getElementById('hourly-checkins').textContent);
+        const hourlyCheckouts = JSON.parse(document.getElementById('hourly-checkouts').textContent);
+
+        // Vehicle Type Distribution Chart
+        const vehicleTypeCtx = document.getElementById('vehicleTypeDistChart')?.getContext('2d');
+        if (vehicleTypeCtx) {
+            charts.vehicleType = new Chart(vehicleTypeCtx, {
+                type: 'pie',
+                data: {
+                    labels: [
+                        {% for type in vehicle_types %}
+                        '{{ type.vehicle_type }}'{% if not forloop.last %},{% endif %}
+                        {% endfor %}
+                    ],
+                    datasets: [{
+                        data: [
+                            {% for type in vehicle_types %}
+                            {{ type.count }}{% if not forloop.last %},{% endif %}
+                            {% endfor %}
+                        ],
+                        backgroundColor: [
+                            'rgba(54, 162, 235, 0.5)',
+                            'rgba(255, 99, 132, 0.5)',
+                            'rgba(75, 192, 192, 0.5)',
+                            'rgba(153, 102, 255, 0.5)'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'top'
+                        },
+                        title: {
+                            display: true,
+                            text: 'Vehicle Type Distribution'
                         }
                     }
                 }
-            }
-        });
+            });
+        }
+
+        // Revenue Trend Chart
+        const revenueCtx = document.getElementById('revenueChart')?.getContext('2d');
+        if (revenueCtx) {
+            charts.revenue = new Chart(revenueCtx, {
+                type: 'line',
+                data: {
+                    labels: [
+                        {% for day in revenue_trend %}
+                        '{{ day.date|date:"M d" }}'
+                        {% if not forloop.last %},{% endif %}
+                        {% endfor %}
+                    ],
+                    datasets: [{
+                        label: 'Daily Revenue',
+                        data: [
+                            {% for day in revenue_trend %}
+                            {{ day.revenue }}
+                            {% if not forloop.last %},{% endif %}
+                            {% endfor %}
+                        ],
+                        borderColor: 'rgb(75, 192, 192)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'top'
+                        },
+                        title: {
+                            display: true,
+                            text: 'Revenue Trend'
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return 'Rp ' + value.toLocaleString();
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        // Vehicle Distribution Chart
+        const vehicleCtx = document.getElementById('vehicleDistChart')?.getContext('2d');
+        if (vehicleCtx) {
+            charts.vehicleDist = new Chart(vehicleCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Motor', 'Mobil'],
+                    datasets: [{
+                        data: [vehicleDist.motor || 0, vehicleDist.car || 0],
+                        backgroundColor: ['#36A2EB', '#FF6384']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            position: 'bottom'
+                        }
+                    }
+                }
+            });
+        }
+
+        // Hourly Stats Chart
+        const hourlyCtx = document.getElementById('hourlyStatsChart')?.getContext('2d');
+        if (hourlyCtx) {
+            charts.hourly = new Chart(hourlyCtx, {
+                type: 'line',
+                data: {
+                    labels: hourlyLabels,
+                    datasets: [{
+                        label: 'Check In',
+                        data: hourlyCheckins,
+                        borderColor: '#36A2EB',
+                        tension: 0.1
+                    }, {
+                        label: 'Check Out',
+                        data: hourlyCheckouts,
+                        borderColor: '#FF6384',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                stepSize: 1
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    // Initialize charts when DOM is loaded
+    document.addEventListener('DOMContentLoaded', initializeCharts);
+
+    // Reinitialize charts when page becomes visible
+    document.addEventListener('visibilitychange', function() {
+        if (document.visibilityState === 'visible') {
+            initializeCharts();
+        }
     });
+})();
 </script>
 {% endblock %}
 {% endblock %} 

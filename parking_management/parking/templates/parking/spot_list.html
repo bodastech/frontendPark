@@ -1,0 +1,256 @@
+{% extends 'parking/base.html' %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-4">
+        <div class="col">
+            <h2>Daftar Spot Parkir</h2>
+        </div>
+        <div class="col text-end">
+            <a href="{% url 'parking:parking_spot_add' %}" class="btn btn-primary">
+                <i class="fas fa-plus"></i> Tambah Spot
+            </a>
+        </div>
+    </div>
+
+    <div id="alertContainer"></div>
+
+    {% if messages %}
+    <div class="messages">
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags }} alert-dismissible fade show">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="card">
+        <div class="card-body">
+            <div class="table-responsive">
+                <table class="table table-striped" id="spotsTable">
+                    <thead>
+                        <tr>
+                            <th>Lantai</th>
+                            <th>Nomor Spot</th>
+                            <th>Tipe</th>
+                            <th>Status</th>
+                            <th>Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for spot in spots %}
+                        <tr data-spot-id="{{ spot.id }}">
+                            <td>{{ spot.floor }}</td>
+                            <td>{{ spot.spot_number }}</td>
+                            <td>{{ spot.spot_type }}</td>
+                            <td>
+                                {% if spot.status == 'AVAILABLE' %}
+                                <span class="badge bg-success">Tersedia</span>
+                                {% else %}
+                                <span class="badge bg-danger">Terisi</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-info edit-spot" data-spot-id="{{ spot.id }}" 
+                                        data-floor="{{ spot.floor }}" data-number="{{ spot.spot_number }}" 
+                                        data-type="{{ spot.spot_type }}">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-sm btn-danger delete-spot" data-spot-id="{{ spot.id }}">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </td>
+                        </tr>
+                        {% empty %}
+                        <tr>
+                            <td colspan="5" class="text-center">Belum ada spot parkir yang ditambahkan</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal fade" id="editSpotModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Edit Spot Parkir</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="editAlertContainer"></div>
+                <form id="editSpotForm">
+                    {% csrf_token %}
+                    <input type="hidden" id="editSpotId" name="spot_id">
+                    <div class="mb-3">
+                        <label for="editFloor" class="form-label">Lantai</label>
+                        <input type="number" class="form-control" id="editFloor" name="floor" required min="1">
+                    </div>
+                    <div class="mb-3">
+                        <label for="editSpotNumber" class="form-label">Nomor Spot</label>
+                        <input type="text" class="form-control" id="editSpotNumber" name="spot_number" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="editSpotType" class="form-label">Tipe</label>
+                        <select class="form-control" id="editSpotType" name="spot_type" required>
+                            <option value="CAR">Mobil</option>
+                            <option value="MOTORCYCLE">Motor</option>
+                            <option value="TRUCK">Truk</option>
+                        </select>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                <button type="button" class="btn btn-primary" id="saveSpotEdit">Simpan</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Delete Confirmation Modal -->
+<div class="modal fade" id="deleteSpotModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">Konfirmasi Hapus</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="deleteAlertContainer"></div>
+                <p>Apakah Anda yakin ingin menghapus spot parkir ini?</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                <button type="button" class="btn btn-danger" id="confirmDelete">Hapus</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const editModal = new bootstrap.Modal(document.getElementById('editSpotModal'));
+    const deleteModal = new bootstrap.Modal(document.getElementById('deleteSpotModal'));
+    let currentSpotId = null;
+
+    function showAlert(container, message, type = 'danger') {
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+        alertDiv.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+        `;
+        container.innerHTML = '';
+        container.appendChild(alertDiv);
+    }
+
+    // Edit Spot
+    document.querySelectorAll('.edit-spot').forEach(button => {
+        button.addEventListener('click', function() {
+            const spotId = this.dataset.spotId;
+            const floor = this.dataset.floor;
+            const number = this.dataset.number;
+            const type = this.dataset.type;
+
+            document.getElementById('editSpotId').value = spotId;
+            document.getElementById('editFloor').value = floor;
+            document.getElementById('editSpotNumber').value = number;
+            document.getElementById('editSpotType').value = type;
+
+            // Clear any previous alerts
+            document.getElementById('editAlertContainer').innerHTML = '';
+            
+            editModal.show();
+        });
+    });
+
+    // Save Edit
+    document.getElementById('saveSpotEdit').addEventListener('click', function() {
+        const form = document.getElementById('editSpotForm');
+        const formData = new FormData(form);
+        const alertContainer = document.getElementById('editAlertContainer');
+        const spotId = formData.get('spot_id');
+
+        fetch(`{% url 'parking:parking_spot_list' %}${spotId}/edit/`, {
+            method: 'POST',
+            body: formData,
+            headers: {
+                'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                editModal.hide();
+                location.reload();
+            } else {
+                showAlert(alertContainer, data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showAlert(alertContainer, 'Terjadi kesalahan saat menyimpan perubahan');
+        });
+    });
+
+    // Delete Spot
+    document.querySelectorAll('.delete-spot').forEach(button => {
+        button.addEventListener('click', function() {
+            currentSpotId = this.dataset.spotId;
+            // Clear any previous alerts
+            document.getElementById('deleteAlertContainer').innerHTML = '';
+            deleteModal.show();
+        });
+    });
+
+    // Confirm Delete
+    document.getElementById('confirmDelete').addEventListener('click', function() {
+        if (!currentSpotId) return;
+
+        const alertContainer = document.getElementById('deleteAlertContainer');
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]').value;
+
+        fetch(`{% url 'parking:parking_spot_list' %}${currentSpotId}/delete/`, {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': csrfToken
+            }
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Network response was not ok');
+            }
+            return response.json();
+        })
+        .then(data => {
+            if (data.success) {
+                deleteModal.hide();
+                location.reload();
+            } else {
+                showAlert(alertContainer, data.message);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showAlert(alertContainer, 'Terjadi kesalahan saat menghapus spot');
+        });
+    });
+});
+</script>
+{% endblock %} 

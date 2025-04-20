@@ -1,0 +1,14 @@
+{
+    "api_url": "http://127.0.0.1:8000/api/process-entry/",
+    "api_username": "admin",
+    "api_password": "admin",
+    "camera_id": "CAM-001",
+    "entry_gate": "MAIN",
+    "image_save_path": "captures",
+    "weather_api_key": "",
+    "weather_api_url": "https://api.openweathermap.org/data/2.5/weather",
+    "default_vehicle_type": "CAR",
+    "confidence_threshold": 0.7,
+    "use_session_auth": true,
+    "auth_url": "http://127.0.0.1:8000/parking/login/"
+}

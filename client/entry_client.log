@@ -1,0 +1,4 @@
+2025-04-16 20:22:02,771 - ParkingEntryClient - ERROR - Authentication failed: {"detail":"No active account found with the given credentials"}
+2025-04-16 20:22:02,772 - ParkingEntryClient - ERROR - Authentication failed. Exiting.
+2025-04-16 20:23:15,881 - ParkingEntryClient - ERROR - JWT authentication failed: {"detail":"No active account found with the given credentials"}
+2025-04-16 20:23:15,882 - ParkingEntryClient - ERROR - Authentication failed. Exiting.

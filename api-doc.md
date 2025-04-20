@@ -66,11 +66,12 @@ POST /api/vehicles/
 
 ### 2. Parking Entry
 
-#### Process Entry
+#### Process Entry (Enhanced)
 ```
 POST /api/process-entry/
 ```
-- Required fields: license_plate, vehicle_type
+- Required fields: plate_number, vehicle_type
+- Optional fields: image_path, confidence_score, entry_gate, operator, weather_condition, entry_method, device_info
 - Response:
 ```json
 {
@@ -78,9 +79,24 @@ POST /api/process-entry/
     "message": "Entry processed successfully",
     "ticket": {
         "id": 1,
-        "license_plate": "B 1234 CD",
+        "plate_number": "B 1234 CD",
         "entry_time": "2025-04-16T16:49:42+07:00",
-        "spot_number": "A1"
+        "vehicle_type": "CAR",
+        "status": "MASUK",
+        "image_path": "/media/captures/2025-04-16/B1234CD_20250416164942.jpg",
+        "confidence_score": 0.95,
+        "entry_gate": "MAIN",
+        "operator": "operator1",
+        "weather_condition": "SUNNY",
+        "is_regular": true,
+        "visit_count": 5,
+        "entry_method": "AUTOMATIC",
+        "device_info": {
+            "camera_id": "CAM-001",
+            "location": "Main Entrance",
+            "firmware": "v2.1.3",
+            "resolution": "1280x720"
+        }
     }
 }
 ```

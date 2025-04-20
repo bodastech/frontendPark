@@ -10,11 +10,23 @@ from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.paginator import Paginator
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 import pandas as pd
 import xlsxwriter
 from io import BytesIO
 import json
+import socket
+from django.db.utils import connections
+import logging
+
+logger = logging.getLogger(__name__)
+
+def get_active_shift(user):
+    """
+    Get the active shift for a given user.
+    Returns None if no active shift is found.
+    """
+    return Shift.objects.filter(operator=user, is_active=True).first()
 
 def user_login(request):
     if request.method == 'POST':
@@ -44,9 +56,33 @@ def start_shift(request):
         messages.warning(request, 'You already have an active shift!')
         return redirect('parking:dashboard')
     
-    # Create new shift
-    shift = Shift.objects.create(operator=request.user)
-    messages.success(request, 'Shift started successfully!')
+    try:
+        # Create new shift
+        shift = Shift.objects.create(
+            operator=request.user,
+            start_time=timezone.now(),
+            is_active=True,
+            total_vehicles=0,
+            total_revenue=0
+        )
+        
+        # Try to connect to server to verify connection
+        conn = psycopg2.connect(
+            dbname="parkir2",
+            user="postgres",
+            password="postgres",
+            host="192.168.2.6",
+            port="5432"
+        )
+        conn.close()
+        
+        messages.success(request, 'Shift started successfully! Server connection verified.')
+    except psycopg2.Error as e:
+        messages.warning(request, f'Shift started but server connection failed: {str(e)}')
+    except Exception as e:
+        messages.error(request, f'Error starting shift: {str(e)}')
+        return redirect('parking:dashboard')
+    
     return redirect('parking:dashboard')
 
 @login_required(login_url='parking:login')
@@ -57,11 +93,73 @@ def end_shift(request):
         return redirect('parking:dashboard')
     
     if request.method == 'POST':
-        notes = request.POST.get('notes', '')
-        active_shift.notes = notes
-        active_shift.end_shift()
-        messages.success(request, 'Shift ended successfully!')
-        return redirect('parking:shift_report', shift_id=active_shift.id)
+        try:
+            # Get local statistics
+            shift_start = active_shift.start_time
+            shift_end = timezone.now()
+            
+            local_vehicles = Captureticket.objects.filter(
+                date_masuk__range=(shift_start, shift_end)
+            ).count()
+            
+            local_revenue = Captureticket.objects.filter(
+                date_masuk__range=(shift_start, shift_end),
+                date_keluar__isnull=False
+            ).aggregate(Sum('biaya'))['biaya__sum'] or 0
+            
+            # Try to get server statistics
+            try:
+                conn = psycopg2.connect(
+                    dbname="parkir2",
+                    user="postgres",
+                    password="postgres",
+                    host="192.168.2.6",
+                    port="5432"
+                )
+                cur = conn.cursor()
+                
+                # Get server tickets for the shift period
+                cur.execute("""
+                    SELECT 
+                        date_masuk, 
+                        date_keluar, 
+                        biaya
+                    FROM public.captureticket 
+                    WHERE date_masuk BETWEEN %s AND %s
+                    ORDER BY date_masuk DESC
+                """, [shift_start, shift_end])
+                
+                server_tickets = cur.fetchall()
+                
+                server_vehicles = len(server_tickets)
+                server_revenue = sum([
+                    ticket[2] or 0 for ticket in server_tickets
+                    if ticket[1] is not None  # Only count completed tickets
+                ])
+                
+                cur.close()
+                conn.close()
+                
+            except Exception as e:
+                print(f"Server connection error during end shift: {str(e)}")
+                server_vehicles = 0
+                server_revenue = 0
+            
+            # Update shift record
+            notes = request.POST.get('notes', '')
+            active_shift.end_time = shift_end
+            active_shift.is_active = False
+            active_shift.notes = notes
+            active_shift.total_vehicles = local_vehicles + server_vehicles
+            active_shift.total_revenue = local_revenue + server_revenue
+            active_shift.save()
+            
+            messages.success(request, 'Shift ended successfully!')
+            return redirect('parking:shift_report', shift_id=active_shift.id)
+            
+        except Exception as e:
+            messages.error(request, f'Error ending shift: {str(e)}')
+            return redirect('parking:dashboard')
     
     return render(request, 'parking/end_shift.html', {'shift': active_shift})
 
@@ -123,33 +221,127 @@ def shift_report(request, shift_id):
 
 @login_required(login_url='parking:login')
 def shift_list(request):
-    shifts = Shift.objects.all()
+    # Get local shifts
+    shifts = Shift.objects.all().order_by('-start_time')
     
-    # Filter by date range
-    date_range = request.GET.get('date_range')
-    if date_range:
-        start_date, end_date = date_range.split(' - ')
-        start_date = datetime.strptime(start_date, '%Y-%m-%d')
-        end_date = datetime.strptime(end_date, '%Y-%m-%d')
-        shifts = shifts.filter(start_time__date__range=[start_date, end_date])
+    # Get server data
+    try:
+        conn = psycopg2.connect(
+            dbname="parkir2",  # Changed from parking_db to parkir2
+            user="postgres",
+            password="postgres",  # Changed from admin to postgres
+            host="192.168.2.6",
+            port="5432"
+        )
+        cur = conn.cursor()
+        
+        # Get tickets from server for the current day
+        today = timezone.now().date()
+        cur.execute("""
+            SELECT 
+                date_masuk, 
+                date_keluar, 
+                plat_no, 
+                biaya,
+                status,
+                entry_gate
+            FROM public.captureticket 
+            WHERE DATE(date_masuk) = %s
+            ORDER BY date_masuk DESC
+        """, [today])
+        
+        server_tickets = cur.fetchall()
+        
+        # Calculate statistics for each shift
+        for shift in shifts:
+            # Local statistics from Captureticket model
+            shift_start = shift.start_time
+            shift_end = shift.end_time or timezone.now()
+            
+            shift.total_vehicles = Captureticket.objects.filter(
+                date_masuk__range=(shift_start, shift_end)
+            ).count()
+            
+            shift.total_revenue = Captureticket.objects.filter(
+                date_masuk__range=(shift_start, shift_end),
+                date_keluar__isnull=False
+            ).aggregate(Sum('biaya'))['biaya__sum'] or 0
+            
+            # Server statistics
+            server_vehicles = len([
+                ticket for ticket in server_tickets
+                if shift_start <= ticket[0].replace(tzinfo=timezone.utc) <= shift_end
+            ])
+            
+            server_revenue = sum([
+                ticket[3] or 0 for ticket in server_tickets
+                if shift_start <= ticket[0].replace(tzinfo=timezone.utc) <= shift_end
+                and ticket[1] is not None  # Only count completed tickets
+            ])
+            
+            shift.server_vehicles = server_vehicles
+            shift.server_revenue = server_revenue
+            
+            # Calculate duration
+            duration = shift_end - shift_start
+            hours = duration.total_seconds() // 3600
+            minutes = (duration.total_seconds() % 3600) // 60
+            shift.duration = f"{int(hours)} hours, {int(minutes)} minutes"
+            
+            if not shift.end_time:
+                shift.duration += " (ongoing)"
+                shift.is_active = True
+            else:
+                shift.is_active = False
+        
+        cur.close()
+        conn.close()
+        
+    except Exception as e:
+        print(f"Server connection error: {str(e)}")  # Debug print
+        messages.error(request, f'Error connecting to server: {str(e)}')
+        # Set default values if server connection fails
+        for shift in shifts:
+            shift.server_vehicles = 0
+            shift.server_revenue = 0
+            duration = (shift.end_time or timezone.now()) - shift.start_time
+            hours = duration.total_seconds() // 3600
+            minutes = (duration.total_seconds() % 3600) // 60
+            shift.duration = f"{int(hours)} hours, {int(minutes)} minutes"
+            if not shift.end_time:
+                shift.duration += " (ongoing)"
+                shift.is_active = True
+            else:
+                shift.is_active = False
     
-    # Filter by status
+    # Apply filters
     status = request.GET.get('status')
+    date_from = request.GET.get('date_from')
+    date_to = request.GET.get('date_to')
+    
     if status == 'active':
-        shifts = shifts.filter(end_time__isnull=True)
+        shifts = [s for s in shifts if not s.end_time]
     elif status == 'completed':
-        shifts = shifts.filter(end_time__isnull=False)
+        shifts = [s for s in shifts if s.end_time]
     
-    # Sort
-    sort_by = request.GET.get('sort', '-start_time')
-    shifts = shifts.order_by(sort_by)
+    if date_from and date_to:
+        try:
+            date_from = datetime.strptime(date_from, '%Y-%m-%d')
+            date_to = datetime.strptime(date_to, '%Y-%m-%d')
+            shifts = [s for s in shifts if date_from.date() <= s.start_time.date() <= date_to.date()]
+        except ValueError:
+            messages.error(request, 'Invalid date format')
     
-    # Pagination
-    paginator = Paginator(shifts, 10)
-    page = request.GET.get('page')
-    shifts = paginator.get_page(page)
+    context = {
+        'shifts': shifts,
+        'filters': {
+            'status': status,
+            'date_from': date_from if isinstance(date_from, str) else date_from.strftime('%Y-%m-%d') if date_from else '',
+            'date_to': date_to if isinstance(date_to, str) else date_to.strftime('%Y-%m-%d') if date_to else '',
+        }
+    }
     
-    return render(request, 'parking/shift_list.html', {'shifts': shifts})
+    return render(request, 'parking/shift_list.html', context)
 
 @login_required(login_url='parking:login')
 def export_shift_report(request, shift_id):
@@ -235,7 +427,28 @@ def dashboard(request):
     now = timezone.now()
     today_start = timezone.make_aware(timezone.datetime.combine(today, timezone.datetime.min.time()))
     
-    # Get basic stats
+    # Get active shift
+    active_shift = Shift.objects.filter(end_time__isnull=True).first()
+    
+    # Try to get PostgreSQL data for supplementary information if available
+    db_source = 'normal'
+    
+    try:
+        # Check if we can connect to PostgreSQL
+        try:
+            with connections['server_db'].cursor() as cursor:
+                cursor.execute("SELECT COUNT(*) FROM captureticket WHERE date_masuk >= %s", [today])
+                pg_data_available = True
+                logger.info("PostgreSQL connection successful for dashboard")
+        except Exception as e:
+            pg_data_available = False
+            db_source = 'sqlite_fallback'
+            logger.warning(f"PostgreSQL not available for dashboard: {str(e)}")
+    except Exception:
+        pg_data_available = False
+        db_source = 'sqlite_fallback'
+    
+    # Get basic stats from Django ORM (SQLite)
     total_today = ParkingSession.objects.filter(check_in_time__date=today).count()
     active_vehicles = ParkingSession.objects.filter(check_out_time__isnull=True).count()
     today_revenue = ParkingSession.objects.filter(
@@ -279,8 +492,71 @@ def dashboard(request):
             ).count()
         )
     
-    # Get active shift
-    active_shift = Shift.objects.filter(end_time__isnull=True).first()
+    # Get real-time statistics
+    real_time = {
+        'entrances': ParkingSession.objects.filter(check_in_time__date=today).count(),
+        'exits': ParkingSession.objects.filter(check_out_time__date=today).count(),
+        'last_hour_entrances': ParkingSession.objects.filter(
+            check_in_time__gte=now - timedelta(hours=1)
+        ).count(),
+        'last_hour_exits': ParkingSession.objects.filter(
+            check_out_time__gte=now - timedelta(hours=1)
+        ).count(),
+    }
+    
+    # Today's statistics
+    today_stats = {
+        'total_vehicles': total_today,
+        'total_revenue': today_revenue,
+        'occupancy_rate': int((total_spots - available_spots) / total_spots * 100) if total_spots > 0 else 0,
+        'active_sessions': active_vehicles,
+    }
+    
+    # Get recent activity
+    recent_activity = []
+    for session in recent_sessions:
+        recent_activity.append({
+            'timestamp': session.check_in_time,
+            'type': 'Check-in',
+            'license_plate': session.vehicle.license_plate,
+            'operator': session.created_by.username if session.created_by else 'System',
+            'status': 'IN'
+        })
+        if session.check_out_time:
+            recent_activity.append({
+                'timestamp': session.check_out_time,
+                'type': 'Check-out',
+                'license_plate': session.vehicle.license_plate,
+                'operator': session.checked_out_by.username if session.checked_out_by else 'System',
+                'status': 'OUT'
+            })
+    
+    # Sort by timestamp descending
+    recent_activity.sort(key=lambda x: x['timestamp'], reverse=True)
+    recent_activity = recent_activity[:10]  # Get only most recent 10
+    
+    # Floor status - organize by floor
+    floor_status = {}
+    for spot in ParkingSpot.objects.all():
+        floor = spot.floor
+        if floor not in floor_status:
+            floor_status[floor] = {
+                'total': 0,
+                'occupied': 0,
+                'available': 0,
+                'occupancy_rate': 0
+            }
+        
+        floor_status[floor]['total'] += 1
+        if spot.status == 'AVAILABLE':
+            floor_status[floor]['available'] += 1
+        else:
+            floor_status[floor]['occupied'] += 1
+    
+    # Calculate occupancy rate for each floor
+    for floor in floor_status:
+        if floor_status[floor]['total'] > 0:
+            floor_status[floor]['occupancy_rate'] = int(floor_status[floor]['occupied'] / floor_status[floor]['total'] * 100)
     
     context = {
         'total_today': total_today,
@@ -294,6 +570,11 @@ def dashboard(request):
         'hourly_checkins': checkins,
         'hourly_checkouts': checkouts,
         'active_shift': active_shift,
+        'real_time': real_time,
+        'today_stats': today_stats,
+        'recent_activity': recent_activity,
+        'floor_status': floor_status,
+        'db_source': db_source,
     }
     
     return render(request, 'parking/dashboard.html', context)
@@ -462,8 +743,229 @@ def check_out_view(request):
 
 @login_required(login_url='parking:login')
 def session_list(request):
-    sessions = ParkingSession.objects.all().order_by('-check_in_time')
-    return render(request, 'parking/session_list.html', {'sessions': sessions})
+    # Check for active shift
+    active_shift = get_active_shift(request.user)
+    if not active_shift:
+        messages.warning(request, 'No active shift found. Please start a new shift.')
+        return redirect('parking:dashboard')
+
+    try:
+        # First try to use PostgreSQL
+        try:
+            with connections['server_db'].cursor() as cursor:
+                # Get today's statistics
+                cursor.execute("""
+                    SELECT 
+                        COUNT(*) as total_kendaraan,
+                        COUNT(CASE WHEN "DateKeluar" IS NULL THEN 1 END) as kendaraan_aktif,
+                        COUNT(CASE WHEN "DateKeluar" IS NOT NULL THEN 1 END) as kendaraan_keluar,
+                        COALESCE(SUM(CASE WHEN "DateKeluar" IS NOT NULL THEN "Biaya" ELSE 0 END), 0) as total_pendapatan,
+                        COUNT(CASE WHEN "JenisKendaraan" = 'MOTOR' THEN 1 END) as total_motor,
+                        COUNT(CASE WHEN "JenisKendaraan" = 'MOBIL' THEN 1 END) as total_mobil
+                    FROM captureticket
+                    WHERE DATE("DateMasuk") = CURRENT_DATE
+                """)
+                summary = dict(zip(
+                    ['total_kendaraan', 'kendaraan_aktif', 'kendaraan_keluar', 'total_pendapatan', 'total_motor', 'total_mobil'], 
+                    cursor.fetchone()
+                ))
+
+                # Get hourly statistics for today
+                cursor.execute("""
+                    SELECT 
+                        EXTRACT(HOUR FROM "DateMasuk") as hour,
+                        COUNT(*) as entries,
+                        COUNT(CASE WHEN "DateKeluar" IS NOT NULL THEN 1 END) as exits
+                    FROM captureticket
+                    WHERE DATE("DateMasuk") = CURRENT_DATE
+                    GROUP BY EXTRACT(HOUR FROM "DateMasuk")
+                    ORDER BY hour
+                """)
+                hourly_stats = cursor.fetchall()
+                
+                hours = []
+                entries = []
+                exits = []
+                for stat in hourly_stats:
+                    hours.append(f"{int(stat[0]):02d}:00")
+                    entries.append(stat[1])
+                    exits.append(stat[2])
+
+                # Get active tickets
+                cursor.execute("""
+                    SELECT 
+                        id, "NoTicket", "DateMasuk", "PlatNo", 
+                        "GateMasuk", "JenisKendaraan", "Operator"
+                    FROM captureticket 
+                    WHERE "DateKeluar" IS NULL
+                    ORDER BY "DateMasuk" DESC
+                """)
+                columns = [col[0] for col in cursor.description]
+                active_tickets = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+                # Get completed tickets for today
+                cursor.execute("""
+                    SELECT 
+                        id, "NoTicket", "DateMasuk", "DateKeluar", "PlatNo", 
+                        "GateMasuk", "GateKeluar", "JenisKendaraan", "Biaya", "Operator"
+                    FROM captureticket 
+                    WHERE "DateKeluar" IS NOT NULL 
+                    AND DATE("DateMasuk") = CURRENT_DATE
+                    ORDER BY "DateKeluar" DESC
+                """)
+                columns = [col[0] for col in cursor.description]
+                completed_tickets = [dict(zip(columns, row)) for row in cursor.fetchall()]
+                
+                db_source = 'postgresql'
+                logger.info("Using PostgreSQL database for session list")
+                
+        except Exception as pg_e:
+            logger.warning(f"PostgreSQL error: {str(pg_e)}, falling back to SQLite")
+            
+            # Fallback to SQLite
+            with connections['default'].cursor() as cursor:
+                # Check if captureticket table exists
+                cursor.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name='captureticket'
+                """)
+                
+                if not cursor.fetchone():
+                    # Create table if not exists
+                    logger.warning("Captureticket table doesn't exist in SQLite, creating it")
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS captureticket (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            NoTicket TEXT,
+                            PlatNo TEXT,
+                            DateMasuk TIMESTAMP,
+                            DateKeluar TIMESTAMP NULL,
+                            GateMasuk TEXT,
+                            GateKeluar TEXT NULL,
+                            JenisKendaraan TEXT,
+                            Biaya DECIMAL(10,2) NULL,
+                            Operator TEXT NULL,
+                            Status TEXT,
+                            visit_count INTEGER DEFAULT 1,
+                            vehicle_type TEXT DEFAULT 'CAR',
+                            entry_gate TEXT DEFAULT 'MAIN'
+                        )
+                    """)
+                
+                # Handling date format for SQLite which stores dates as strings
+                today = timezone.now().date().isoformat()
+                
+                # Get today's statistics
+                cursor.execute("""
+                    SELECT 
+                        COUNT(*) as total_kendaraan,
+                        COUNT(CASE WHEN DateKeluar IS NULL THEN 1 END) as kendaraan_aktif,
+                        COUNT(CASE WHEN DateKeluar IS NOT NULL THEN 1 END) as kendaraan_keluar,
+                        COALESCE(SUM(CASE WHEN DateKeluar IS NOT NULL THEN Biaya ELSE 0 END), 0) as total_pendapatan,
+                        COUNT(CASE WHEN JenisKendaraan = 'MOTOR' THEN 1 END) as total_motor,
+                        COUNT(CASE WHEN JenisKendaraan = 'MOBIL' OR JenisKendaraan = 'CAR' THEN 1 END) as total_mobil
+                    FROM captureticket
+                    WHERE DateMasuk LIKE ?
+                """, [f"{today}%"])
+                
+                summary_data = cursor.fetchone()
+                summary = {
+                    'total_kendaraan': summary_data[0],
+                    'kendaraan_aktif': summary_data[1],
+                    'kendaraan_keluar': summary_data[2],
+                    'total_pendapatan': summary_data[3],
+                    'total_motor': summary_data[4],
+                    'total_mobil': summary_data[5]
+                }
+                
+                # Simplified hourly statistics for SQLite
+                # Since we can't easily extract hour from timestamp in SQLite, 
+                # we'll create a simple 24-hour structure
+                hours = [f"{hour:02d}:00" for hour in range(24)]
+                current_hour = timezone.now().hour
+                
+                # Generate dummy data or get simple hour counts
+                cursor.execute("""
+                    SELECT COUNT(*) FROM captureticket WHERE DateMasuk LIKE ?
+                """, [f"{today}%"])
+                total_entries = cursor.fetchone()[0]
+                
+                cursor.execute("""
+                    SELECT COUNT(*) FROM captureticket WHERE DateMasuk LIKE ? AND DateKeluar IS NOT NULL
+                """, [f"{today}%"])
+                total_exits = cursor.fetchone()[0]
+                
+                # Distribute entries and exits across hours (simple approximation)
+                entries = [0] * 24
+                exits = [0] * 24
+                
+                # Simple distribution logic - most entries in morning, most exits in evening
+                for h in range(current_hour + 1):
+                    if h < 12:  # Morning hours get more entries
+                        entries[h] = int(total_entries * (0.7 / 12)) if total_entries > 0 else 0
+                    else:  # Afternoon hours get fewer entries
+                        entries[h] = int(total_entries * (0.3 / 12)) if total_entries > 0 else 0
+                        
+                    if h < 12:  # Morning hours get fewer exits
+                        exits[h] = int(total_exits * (0.3 / 12)) if total_exits > 0 else 0
+                    else:  # Afternoon hours get more exits
+                        exits[h] = int(total_exits * (0.7 / 12)) if total_exits > 0 else 0
+                
+                # Get active tickets
+                cursor.execute("""
+                    SELECT 
+                        id, NoTicket, DateMasuk, PlatNo, 
+                        GateMasuk, JenisKendaraan, Operator
+                    FROM captureticket 
+                    WHERE DateKeluar IS NULL
+                    ORDER BY DateMasuk DESC
+                """)
+                
+                columns = ['id', 'NoTicket', 'DateMasuk', 'PlatNo', 'GateMasuk', 'JenisKendaraan', 'Operator']
+                active_tickets = []
+                
+                for row in cursor.fetchall():
+                    ticket = dict(zip(columns, row))
+                    active_tickets.append(ticket)
+                
+                # Get completed tickets for today
+                cursor.execute("""
+                    SELECT 
+                        id, NoTicket, DateMasuk, DateKeluar, PlatNo, 
+                        GateMasuk, GateKeluar, JenisKendaraan, Biaya, Operator
+                    FROM captureticket 
+                    WHERE DateKeluar IS NOT NULL 
+                    AND DateMasuk LIKE ?
+                    ORDER BY DateKeluar DESC
+                """, [f"{today}%"])
+                
+                columns = ['id', 'NoTicket', 'DateMasuk', 'DateKeluar', 'PlatNo', 'GateMasuk', 'GateKeluar', 'JenisKendaraan', 'Biaya', 'Operator']
+                completed_tickets = []
+                
+                for row in cursor.fetchall():
+                    ticket = dict(zip(columns, row))
+                    completed_tickets.append(ticket)
+                
+                db_source = 'sqlite'
+                logger.info("Using SQLite database for session list")
+
+        context = {
+            'summary': summary,
+            'hourly_labels': json.dumps(hours),
+            'hourly_entries': json.dumps(entries),
+            'hourly_exits': json.dumps(exits),
+            'active_tickets': active_tickets,
+            'completed_tickets': completed_tickets,
+            'active_shift': active_shift,
+            'db_source': db_source,
+        }
+
+        return render(request, 'parking/session_list.html', context)
+        
+    except Exception as e:
+        logger.error(f"Error in session_list: {str(e)}")
+        messages.error(request, f'Database error: {str(e)}')
+        return redirect('parking:dashboard')
 
 def test_captureticket(request):
     try:
@@ -544,6 +1046,43 @@ def view_captureticket(request):
         return redirect('parking:dashboard')
 
 @login_required(login_url='parking:login')
+def get_active_tickets(request):
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT 
+                    id, "NoTicket", "DateMasuk", "PlatNo", 
+                    "GateMasuk", "JenisKendaraan", "Operator", "Status"
+                FROM captureticket 
+                WHERE "DateKeluar" IS NULL
+                ORDER BY "DateMasuk" DESC
+            """)
+            columns = [col[0] for col in cursor.description]
+            active_tickets = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+            tickets_data = []
+            for ticket in active_tickets:
+                tickets_data.append({
+                    'id': ticket['id'],
+                    'NoTicket': ticket['NoTicket'],
+                    'DateMasuk': ticket['DateMasuk'].strftime('%Y-%m-%d %H:%M:%S') if ticket['DateMasuk'] else None,
+                    'PlatNo': ticket['PlatNo'],
+                    'GateMasuk': ticket['GateMasuk'] or 'GATE-1',
+                    'JenisKendaraan': ticket['JenisKendaraan'],
+                    'Operator': ticket['Operator'] or 'SYSTEM',
+                    'Status': 'ACTIVE'
+                })
+
+            return JsonResponse({
+                'status': 'success',
+                'tickets': tickets_data
+            })
+    except Exception as e:
+        return JsonResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status=500)
+
 def test_connection(request):
     try:
         # Direct connection test using psycopg2
@@ -626,3 +1165,373 @@ def test_connection(request):
                 'user': 'postgres'
             }
         }, json_dumps_params={'indent': 2})
+
+def create_test_data(request):
+    try:
+        # Create test vehicles
+        vehicle1, _ = Vehicle.objects.get_or_create(
+            license_plate="B 1234 CD",
+            defaults={
+                "vehicle_type": "CAR",
+                "owner_name": "John Doe",
+                "owner_contact": "08123456789"
+            }
+        )
+        vehicle2, _ = Vehicle.objects.get_or_create(
+            license_plate="B 5678 EF",
+            defaults={
+                "vehicle_type": "MOTORCYCLE",
+                "owner_name": "Jane Doe",
+                "owner_contact": "08234567890"
+            }
+        )
+        vehicles = [vehicle1, vehicle2]
+
+        # Create test parking spots
+        spot1, _ = ParkingSpot.objects.get_or_create(
+            spot_number="A-01",
+            defaults={
+                "spot_type": "CAR",
+                "floor": 1,
+                "status": "AVAILABLE"
+            }
+        )
+        spot2, _ = ParkingSpot.objects.get_or_create(
+            spot_number="B-01",
+            defaults={
+                "spot_type": "MOTORCYCLE",
+                "floor": 1,
+                "status": "AVAILABLE"
+            }
+        )
+        spots = [spot1, spot2]
+
+        # Create test user/operator if not exists
+        user, created = User.objects.get_or_create(
+            username="operator1",
+            defaults={
+                "first_name": "John",
+                "last_name": "Operator",
+                "email": "operator1@example.com"
+            }
+        )
+        if created:
+            user.set_password("password123")
+            user.save()
+
+        # Create test shift
+        shift = Shift.objects.create(
+            operator=user,
+            start_time=timezone.now() - timedelta(hours=2)
+        )
+
+        # Delete any existing sessions for these spots
+        ParkingSession.objects.filter(parking_spot__in=spots).delete()
+
+        # Reset spot status
+        for spot in spots:
+            spot.status = "AVAILABLE"
+            spot.save()
+
+        # Create test parking sessions
+        sessions = [
+            ParkingSession.objects.create(
+                vehicle=vehicles[0],
+                parking_spot=spots[0],
+                shift=shift,
+                check_in_time=timezone.now() - timedelta(hours=2),
+                check_out_time=timezone.now() - timedelta(hours=1),
+                fee=10000,
+                created_by=user,
+                checked_out_by=user,
+                is_active=False
+            ),
+            ParkingSession.objects.create(
+                vehicle=vehicles[1],
+                parking_spot=spots[1],
+                shift=shift,
+                check_in_time=timezone.now() - timedelta(minutes=30),
+                created_by=user,
+                is_active=True
+            )
+        ]
+
+        # Update spot status for active session
+        spots[1].status = "OCCUPIED"
+        spots[1].save()
+
+        return JsonResponse({
+            'status': 'success',
+            'message': 'Test data created successfully',
+            'data': {
+                'vehicles': [v.license_plate for v in vehicles],
+                'spots': [s.spot_number for s in spots],
+                'sessions': len(sessions)
+            }
+        })
+
+    except Exception as e:
+        return JsonResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status=500)
+
+@login_required(login_url='parking:login')
+def parking_spot_edit(request, spot_id):
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    
+    try:
+        spot = ParkingSpot.objects.get(id=spot_id)
+        
+        # Get active session for this spot if any
+        active_session = ParkingSession.objects.filter(
+            parking_spot=spot,
+            check_out_time__isnull=True,
+            is_active=True
+        ).first()
+        
+        # Validate required fields
+        floor = request.POST.get('floor')
+        spot_number = request.POST.get('spot_number')
+        spot_type = request.POST.get('spot_type')
+        
+        if not all([floor, spot_number, spot_type]):
+            return JsonResponse({
+                'success': False,
+                'message': 'Semua field harus diisi'
+            })
+            
+        # Validate spot type
+        if spot_type not in [t[0] for t in ParkingSpot.SPOT_TYPES]:
+            return JsonResponse({
+                'success': False,
+                'message': 'Tipe spot tidak valid'
+            })
+        
+        # If spot is occupied, validate changes
+        if active_session:
+            # Only check spot number uniqueness if it's being changed
+            if spot_number != spot.spot_number:
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Tidak dapat mengubah nomor spot yang sedang digunakan oleh kendaraan {active_session.vehicle.license_plate}'
+                })
+            
+            # Validate vehicle type compatibility
+            vehicle_type = active_session.vehicle.vehicle_type
+            if spot_type != vehicle_type:
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Tidak dapat mengubah tipe spot menjadi {spot_type} karena sedang digunakan oleh kendaraan tipe {vehicle_type}'
+                })
+        else:
+            # Check if spot number is unique (excluding current spot)
+            if ParkingSpot.objects.exclude(id=spot_id).filter(spot_number=spot_number).exists():
+                return JsonResponse({
+                    'success': False,
+                    'message': 'Nomor spot sudah digunakan'
+                })
+        
+        # Update spot
+        spot.floor = floor
+        spot.spot_number = spot_number
+        spot.spot_type = spot_type
+        spot.save()
+        
+        return JsonResponse({
+            'success': True,
+            'message': 'Spot parkir berhasil diupdate'
+        })
+    except ParkingSpot.DoesNotExist:
+        return JsonResponse({
+            'success': False, 
+            'message': 'Spot tidak ditemukan'
+        }, status=404)
+    except ValueError as e:
+        return JsonResponse({
+            'success': False, 
+            'message': f'Input tidak valid: {str(e)}'
+        }, status=400)
+    except Exception as e:
+        return JsonResponse({
+            'success': False, 
+            'message': f'Error: {str(e)}'
+        }, status=500)
+
+@login_required(login_url='parking:login')
+def parking_spot_delete(request, spot_id):
+    if request.method != 'POST':
+        return JsonResponse({'success': False, 'message': 'Method not allowed'}, status=405)
+    
+    try:
+        spot = ParkingSpot.objects.get(id=spot_id)
+        
+        # Check for active parking sessions
+        active_session = ParkingSession.objects.filter(
+            parking_spot=spot,
+            check_out_time__isnull=True,
+            is_active=True
+        ).first()
+        
+        if active_session:
+            return JsonResponse({
+                'success': False, 
+                'message': f'Tidak dapat menghapus spot yang sedang digunakan oleh kendaraan {active_session.vehicle.license_plate}'
+            })
+        
+        # Check if spot has completed sessions
+        if ParkingSession.objects.filter(parking_spot=spot, check_out_time__isnull=False).exists():
+            return JsonResponse({
+                'success': False,
+                'message': 'Tidak dapat menghapus spot yang memiliki riwayat parkir'
+            })
+        
+        spot.delete()
+        return JsonResponse({
+            'success': True,
+            'message': 'Spot parkir berhasil dihapus'
+        })
+    except ParkingSpot.DoesNotExist:
+        return JsonResponse({
+            'success': False, 
+            'message': 'Spot tidak ditemukan'
+        }, status=404)
+    except Exception as e:
+        return JsonResponse({
+            'success': False, 
+            'message': f'Error: {str(e)}'
+        }, status=500)
+
+@login_required(login_url='parking:login')
+def real_parking_data(request):
+    try:
+        with connection.cursor() as cursor:
+            # Get active parking sessions
+            cursor.execute("""
+                SELECT 
+                    "Id",
+                    "NoTicket",
+                    "DateMasuk",
+                    "PlatNo",
+                    "JenisKendaraan",
+                    "GateMasuk",
+                    "Status"
+                FROM "CaptureTickets"
+                WHERE "Status" = 'MASUK'
+                ORDER BY "DateMasuk" DESC
+            """)
+            columns = [col[0] for col in cursor.description]
+            active_tickets = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+            # Get completed sessions for today
+            cursor.execute("""
+                SELECT 
+                    "Id",
+                    "NoTicket",
+                    "DateMasuk",
+                    "DateKeluar",
+                    "PlatNo",
+                    "JenisKendaraan",
+                    "GateMasuk",
+                    "GateKeluar",
+                    "Biaya",
+                    "Status"
+                FROM "CaptureTickets"
+                WHERE "Status" = 'KELUAR' 
+                AND DATE("DateKeluar") = CURRENT_DATE
+                ORDER BY "DateKeluar" DESC
+            """)
+            columns = [col[0] for col in cursor.description]
+            completed_tickets = [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+            # Get summary statistics
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total_kendaraan,
+                    COUNT(CASE WHEN "Status" = 'MASUK' THEN 1 END) as kendaraan_aktif,
+                    COUNT(CASE WHEN "Status" = 'KELUAR' AND DATE("DateKeluar") = CURRENT_DATE THEN 1 END) as kendaraan_keluar,
+                    COALESCE(SUM(CASE WHEN "Status" = 'KELUAR' AND DATE("DateKeluar") = CURRENT_DATE THEN "Biaya" ELSE 0 END), 0) as total_pendapatan
+                FROM "CaptureTickets"
+                WHERE DATE("DateMasuk") = CURRENT_DATE OR (DATE("DateKeluar") = CURRENT_DATE AND "Status" = 'KELUAR')
+            """)
+            summary = dict(zip(['total_kendaraan', 'kendaraan_aktif', 'kendaraan_keluar', 'total_pendapatan'], cursor.fetchone()))
+
+        return render(request, 'parking/real_parking_data.html', {
+            'active_tickets': active_tickets,
+            'completed_tickets': completed_tickets,
+            'summary': summary
+        })
+
+    except Exception as e:
+        messages.error(request, f'Database error: {str(e)}')
+        return JsonResponse({
+            'success': False,
+            'message': f'Error mengambil data: {str(e)}'
+        }, status=500)
+
+@login_required(login_url='parking:login')
+def entry_monitor(request):
+    """View for monitoring parking entries from the client gate"""
+    return render(request, 'parking/entry_monitor.html')
+
+def entry_monitor_data(request):
+    """API endpoint for getting real-time entry data"""
+    try:
+        # Get current date for filtering
+        today = timezone.now().date()
+        
+        # Get statistics
+        statistics = {
+            'total_today': Captureticket.objects.filter(
+                date_masuk__date=today
+            ).count(),
+            'last_hour': Captureticket.objects.filter(
+                date_masuk__gte=timezone.now() - timedelta(hours=1)
+            ).count(),
+        }
+        
+        # Get recent entries (last 50)
+        recent_entries = []
+        entries = Captureticket.objects.filter(
+            date_masuk__date=today
+        ).order_by('-date_masuk')[:50]
+        
+        for entry in entries:
+            recent_entries.append({
+                'timestamp': entry.date_masuk.isoformat(),
+                'ticket_id': entry.NoTicket,
+                'plate_number': entry.PlatNo,
+                'gate': entry.GateMasuk,
+                'operator': entry.Operator if hasattr(entry, 'Operator') else 'SYSTEM',
+                'status': 'SUCCESS',
+                'image': entry.image_url if hasattr(entry, 'image_url') else None
+            })
+        
+        # Check client status (192.168.2.7)
+        client_status = 'DISCONNECTED'
+        gate_status = 'OFFLINE'
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)  # 1 second timeout
+            result = sock.connect_ex(('192.168.2.7', 80))
+            if result == 0:
+                client_status = 'CONNECTED'
+                gate_status = 'ONLINE'
+            sock.close()
+        except:
+            pass
+        
+        return JsonResponse({
+            'statistics': statistics,
+            'recent_entries': recent_entries,
+            'status': {
+                'gate': gate_status,
+                'client': client_status
+            }
+        })
+        
+    except Exception as e:
+        return JsonResponse({
+            'error': str(e)
+        }, status=500)

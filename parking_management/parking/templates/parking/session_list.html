@@ -1,75 +1,517 @@
 {% extends 'parking/base.html' %}
+{% load static %}
+{% load humanize %}
 
 {% block content %}
-<div class="container">
-    <div class="card">
-        <div class="card-header bg-info text-white">
-            <h4 class="mb-0">Parking Sessions</h4>
+{% csrf_token %}
+<div class="container-fluid">
+    <!-- Database Source Alert -->
+    {% if db_source == 'sqlite' %}
+    <div class="alert alert-warning alert-dismissible fade show" role="alert">
+        <strong>Perhatian!</strong> Server PostgreSQL saat ini tidak tersedia. Data ditampilkan dari database SQLite lokal.
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {% endif %}
+
+    <!-- Summary Cards -->
+    <div class="row mb-4">
+        <div class="col-xl-3 col-md-6">
+            <div class="card bg-primary text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-uppercase">Total Kendaraan</h6>
+                            <h2 class="mb-0">{{ summary.total_kendaraan }}</h2>
+                        </div>
+                        <div>
+                            <i class="fas fa-car fa-2x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
-        <div class="card-body">
-            <div class="table-responsive">
-                <table class="table table-striped">
-                    <thead>
-                        <tr>
-                            <th>Check-in Time</th>
-                            <th>Check-out Time</th>
-                            <th>Vehicle</th>
-                            <th>Spot</th>
-                            <th>Duration</th>
-                            <th>Fee</th>
-                            <th>Status</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for session in sessions %}
-                        <tr>
-                            <td>{{ session.check_in_time|date:"Y-m-d H:i" }}</td>
-                            <td>
-                                {% if session.check_out_time %}
-                                    {{ session.check_out_time|date:"Y-m-d H:i" }}
-                                {% else %}
-                                    -
-                                {% endif %}
-                            </td>
-                            <td>{{ session.vehicle.license_plate }}</td>
-                            <td>{{ session.parking_spot.identifier }}</td>
-                            <td>
-                                {% if session.check_out_time %}
-                                    {{ session.check_in_time|timesince:session.check_out_time }}
-                                {% else %}
-                                    {{ session.check_in_time|timesince }} (ongoing)
-                                {% endif %}
-                            </td>
-                            <td>Rp {{ session.fee|default:"0" }}</td>
-                            <td>
-                                {% if session.is_active %}
-                                    <span class="badge bg-success">Active</span>
-                                {% else %}
-                                    <span class="badge bg-secondary">Completed</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if session.is_active %}
-                                <a href="{% url 'parking:check_out' session.id %}" class="btn btn-sm btn-warning">
-                                    Check Out
-                                </a>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% empty %}
-                        <tr>
-                            <td colspan="8" class="text-center">No parking sessions recorded</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+        <div class="col-xl-3 col-md-6">
+            <div class="card bg-success text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-uppercase">Kendaraan Aktif</h6>
+                            <h2 class="mb-0">{{ summary.kendaraan_aktif }}</h2>
+                        </div>
+                        <div>
+                            <i class="fas fa-clock fa-2x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-md-6">
+            <div class="card bg-info text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-uppercase">Kendaraan Keluar</h6>
+                            <h2 class="mb-0">{{ summary.kendaraan_keluar }}</h2>
+                        </div>
+                        <div>
+                            <i class="fas fa-check-circle fa-2x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="col-xl-3 col-md-6">
+            <div class="card bg-warning text-white">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <h6 class="text-uppercase">Total Pendapatan</h6>
+                            <h2 class="mb-0">Rp {{ summary.total_pendapatan|intcomma }}</h2>
+                        </div>
+                        <div>
+                            <i class="fas fa-money-bill fa-2x opacity-50"></i>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
-    <div class="text-center mt-4">
-        <a href="{% url 'parking:dashboard' %}" class="btn btn-secondary">Back to Dashboard</a>
+    <!-- Charts Row -->
+    <div class="row mb-4">
+        <!-- Traffic Chart -->
+        <div class="col-xl-8">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Lalu Lintas Kendaraan Hari Ini</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="trafficChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <!-- Vehicle Distribution -->
+        <div class="col-xl-4">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Distribusi Kendaraan</h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="vehicleDistChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Active Tickets -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0">Kendaraan Aktif</h5>
+                    <button class="btn btn-primary btn-sm" id="refreshButton">
+                        <i class="fas fa-sync"></i> Refresh
+                    </button>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped" id="activeTicketsTable">
+                            <thead>
+                                <tr>
+                                    <th>No. Tiket</th>
+                                    <th>Waktu Masuk</th>
+                                    <th>Plat No</th>
+                                    <th>Gate</th>
+                                    <th>Jenis</th>
+                                    <th>Operator</th>
+                                    <th>Durasi</th>
+                                    <th>Aksi</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for ticket in active_tickets %}
+                                <tr>
+                                    <td>{{ ticket.NoTicket|default:ticket.id }}</td>
+                                    <td class="timestamp">{{ ticket.DateMasuk|date:"Y-m-d H:i:s" }}</td>
+                                    <td>{{ ticket.PlatNo }}</td>
+                                    <td>{{ ticket.GateMasuk|default:"MAIN" }}</td>
+                                    <td>{{ ticket.JenisKendaraan|default:"CAR" }}</td>
+                                    <td>{{ ticket.Operator|default:"SYSTEM" }}</td>
+                                    <td class="duration" data-entry="{{ ticket.DateMasuk|date:'c' }}">
+                                        Calculating...
+                                    </td>
+                                    <td>
+                                        <button class="btn btn-primary btn-sm checkout-btn" data-ticket-id="{{ ticket.id }}" data-plat-no="{{ ticket.PlatNo }}">
+                                            Checkout
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="8" class="text-center">Tidak ada kendaraan aktif</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Completed Tickets -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header">
+                    <h5 class="card-title mb-0">Kendaraan Keluar Hari Ini</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-striped">
+                            <thead>
+                                <tr>
+                                    <th>No. Tiket</th>
+                                    <th>Waktu Masuk</th>
+                                    <th>Waktu Keluar</th>
+                                    <th>Plat No</th>
+                                    <th>Gate Masuk</th>
+                                    <th>Gate Keluar</th>
+                                    <th>Jenis</th>
+                                    <th>Biaya</th>
+                                    <th>Operator</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for ticket in completed_tickets %}
+                                <tr>
+                                    <td>{{ ticket.NoTicket|default:ticket.id }}</td>
+                                    <td class="timestamp">{{ ticket.DateMasuk|date:"Y-m-d H:i:s" }}</td>
+                                    <td class="timestamp">{{ ticket.DateKeluar|date:"Y-m-d H:i:s" }}</td>
+                                    <td>{{ ticket.PlatNo }}</td>
+                                    <td>{{ ticket.GateMasuk|default:"MAIN" }}</td>
+                                    <td>{{ ticket.GateKeluar|default:"MAIN" }}</td>
+                                    <td>{{ ticket.JenisKendaraan|default:"CAR" }}</td>
+                                    <td>Rp {{ ticket.Biaya|floatformat:0|intcomma }}</td>
+                                    <td>{{ ticket.Operator|default:"SYSTEM" }}</td>
+                                </tr>
+                                {% empty %}
+                                <tr>
+                                    <td colspan="9" class="text-center">Belum ada kendaraan keluar hari ini</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
+
+<!-- Checkout Modal -->
+<div class="modal fade" id="checkoutModal" tabindex="-1" aria-labelledby="checkoutModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="checkoutModalLabel">Checkout Kendaraan</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="checkout-alert" class="alert alert-danger d-none"></div>
+                <form id="checkoutForm">
+                    <div class="mb-3">
+                        <label for="ticketNumber" class="form-label">Nomor Tiket</label>
+                        <input type="text" class="form-control" id="ticketNumber" readonly>
+                    </div>
+                    <div class="mb-3">
+                        <label for="plateNumber" class="form-label">Plat Nomor</label>
+                        <input type="text" class="form-control" id="plateNumber" readonly>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                <button type="button" class="btn btn-primary" id="confirmCheckout">Proses Checkout</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Receipt Modal -->
+<div class="modal fade" id="receiptModal" tabindex="-1" aria-labelledby="receiptModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="receiptModalLabel">Struk Parkir</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="text-center mb-3">
+                    <h4>STRUK PARKIR</h4>
+                    <p class="mb-0">{{ active_shift.operator.username }}</p>
+                    <p>{{ active_shift.start_time|date:"Y-m-d" }}</p>
+                </div>
+                <table class="table table-borderless">
+                    <tr>
+                        <td>No. Tiket</td>
+                        <td>:</td>
+                        <td id="receipt-ticket"></td>
+                    </tr>
+                    <tr>
+                        <td>Plat Nomor</td>
+                        <td>:</td>
+                        <td id="receipt-plate"></td>
+                    </tr>
+                    <tr>
+                        <td>Waktu Masuk</td>
+                        <td>:</td>
+                        <td id="receipt-entry"></td>
+                    </tr>
+                    <tr>
+                        <td>Waktu Keluar</td>
+                        <td>:</td>
+                        <td id="receipt-exit"></td>
+                    </tr>
+                    <tr>
+                        <td>Durasi</td>
+                        <td>:</td>
+                        <td id="receipt-duration"></td>
+                    </tr>
+                    <tr>
+                        <td>Tarif</td>
+                        <td>:</td>
+                        <td id="receipt-fee"></td>
+                    </tr>
+                </table>
+                <div class="text-center">
+                    <p>Terima Kasih</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Tutup</button>
+                <button type="button" class="btn btn-primary" id="printReceipt">Cetak</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+document.addEventListener("DOMContentLoaded", function() {
+    // Update durations
+    function updateDurations() {
+        document.querySelectorAll('.duration').forEach(function(element) {
+            try {
+                const entryTime = new Date(element.dataset.entry);
+                const now = new Date();
+                const diff = now - entryTime;
+                if (isNaN(diff)) {
+                    element.textContent = "Invalid date";
+                } else {
+                    const hours = Math.floor(diff / (1000 * 60 * 60));
+                    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                    element.textContent = `${hours}j ${minutes}m`;
+                }
+            } catch (e) {
+                console.error("Error calculating duration:", e);
+                element.textContent = "Error";
+            }
+        });
+    }
+
+    // Format timestamps
+    document.querySelectorAll('.timestamp').forEach(function(element) {
+        try {
+            const timestamp = element.textContent.trim();
+            if (timestamp && timestamp !== "") {
+                const date = new Date(timestamp);
+                if (!isNaN(date.getTime())) {
+                    element.textContent = new Intl.DateTimeFormat('id-ID', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        second: '2-digit',
+                        hour12: false
+                    }).format(date);
+                }
+            }
+        } catch (e) {
+            console.error("Error formatting timestamp:", e);
+        }
+    });
+
+    // Initialize chart data from Django template
+    try {
+        const hourlyLabels = {{ hourly_labels|safe }};
+        const hourlyEntries = {{ hourly_entries|safe }};
+        const hourlyExits = {{ hourly_exits|safe }};
+
+        // Traffic Chart
+        const trafficCtx = document.getElementById('trafficChart').getContext('2d');
+        const trafficChart = new Chart(trafficCtx, {
+            type: 'line',
+            data: {
+                labels: hourlyLabels,
+                datasets: [{
+                    label: 'Kendaraan Masuk',
+                    data: hourlyEntries,
+                    borderColor: 'rgba(75, 192, 192, 1)',
+                    tension: 0.1
+                }, {
+                    label: 'Kendaraan Keluar',
+                    data: hourlyExits,
+                    borderColor: 'rgba(255, 99, 132, 1)',
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+
+        // Vehicle Distribution Chart
+        const totalMotor = {{ summary.total_motor|default:0 }};
+        const totalMobil = {{ summary.total_mobil|default:0 }};
+        const vehicleDistCtx = document.getElementById('vehicleDistChart').getContext('2d');
+        const vehicleDistChart = new Chart(vehicleDistCtx, {
+            type: 'pie',
+            data: {
+                labels: ['Motor', 'Mobil'],
+                datasets: [{
+                    data: [totalMotor, totalMobil],
+                    backgroundColor: [
+                        'rgba(54, 162, 235, 0.7)',
+                        'rgba(255, 99, 132, 0.7)'
+                    ],
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'bottom'
+                    }
+                }
+            }
+        });
+    } catch (e) {
+        console.error("Error initializing charts:", e);
+    }
+
+    // Update durations every minute
+    updateDurations();
+    setInterval(updateDurations, 60000);
+
+    // Handle Checkout Click
+    document.querySelectorAll('.checkout-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const ticketId = this.dataset.ticketId;
+            const platNo = this.dataset.platNo;
+            document.getElementById('ticketNumber').value = ticketId;
+            document.getElementById('plateNumber').value = platNo;
+            
+            // Show the modal
+            const checkoutModal = new bootstrap.Modal(document.getElementById('checkoutModal'));
+            checkoutModal.show();
+        });
+    });
+
+    // Handle Confirm Checkout
+    document.getElementById('confirmCheckout').addEventListener('click', function() {
+        const ticketNumber = document.getElementById('ticketNumber').value;
+        
+        // Reset alert
+        const alertBox = document.getElementById('checkout-alert');
+        alertBox.textContent = '';
+        alertBox.classList.add('d-none');
+        
+        // API call
+        fetch('/parking/api/process-exit-ticket/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            },
+            body: JSON.stringify({
+                ticket_number: ticketNumber
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                // Hide checkout modal
+                bootstrap.Modal.getInstance(document.getElementById('checkoutModal')).hide();
+                
+                // Fill receipt data
+                document.getElementById('receipt-ticket').textContent = ticketNumber;
+                document.getElementById('receipt-plate').textContent = data.ticket.plat_no;
+                document.getElementById('receipt-entry').textContent = new Date(data.ticket.date_masuk).toLocaleString('id-ID');
+                document.getElementById('receipt-exit').textContent = new Date(data.ticket.date_keluar).toLocaleString('id-ID');
+                document.getElementById('receipt-duration').textContent = data.ticket.duration_hours.toFixed(1) + ' jam';
+                document.getElementById('receipt-fee').textContent = 'Rp ' + data.ticket.fee.toLocaleString('id-ID');
+                
+                // Show receipt modal
+                const receiptModal = new bootstrap.Modal(document.getElementById('receiptModal'));
+                receiptModal.show();
+                
+                // Refresh page after 5 seconds
+                setTimeout(() => {
+                    location.reload();
+                }, 5000);
+            } else {
+                // Show error
+                alertBox.textContent = data.message || 'Failed to process checkout';
+                alertBox.classList.remove('d-none');
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alertBox.textContent = 'Network error, please try again';
+            alertBox.classList.remove('d-none');
+        });
+    });
+
+    // Handle Print Receipt
+    document.getElementById('printReceipt').addEventListener('click', function() {
+        const receiptContent = document.querySelector('#receiptModal .modal-body').innerHTML;
+        const printWindow = window.open('', '_blank');
+        printWindow.document.write(`
+            <html>
+                <head>
+                    <title>Struk Parkir</title>
+                    <style>
+                        body { font-family: Arial, sans-serif; max-width: 300px; margin: 0 auto; }
+                        .text-center { text-align: center; }
+                        table { width: 100%; }
+                        td { padding: 3px 0; }
+                    </style>
+                </head>
+                <body>
+                    ${receiptContent}
+                    <script>
+                        window.onload = function() { window.print(); setTimeout(function() { window.close(); }, 500); }
+                    </script>
+                </body>
+            </html>
+        `);
+    });
+
+    // Handle Refresh Button
+    document.getElementById('refreshButton').addEventListener('click', function() {
+        location.reload();
+    });
+});
+</script>
 {% endblock %} 
